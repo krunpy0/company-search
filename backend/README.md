@@ -139,3 +139,64 @@ go run ./cmd/import -dataset debtam -published-on 2026-10-25
 $env:COMPANY_API_STAGE7_TEST_DATABASE_URL = $env:DATABASE_URL
 go test ./internal/httpapi -run '^TestPublishedMoneyTaxes$' -count=1
 ```
+
+## Расписание и восстановление выпусков ФНС
+
+`import -check -dataset <код>` проверяет одну последнюю ожидаемую дату по Москве. Если выпуск уже загружен, команда завершится без запроса к ФНС. Для даты вне обычного графика сверьте официальный паспорт и передайте `-published-on YYYY-MM-DD`. [График ФНС для налоговых наборов](https://www.nalog.gov.ru/rn11/news/activities_fts/16631320/)
+
+| Набор | Ожидаемая дата ZIP | Что меняется в выдаче |
+|---|---|---|
+| [`rsmp`](https://www.nalog.gov.ru/opendata/7707329152-rsmp/) | 10-е число | Новый полный срез заменяет текущий. |
+| [`revexp`](https://www.nalog.gov.ru/rn27/opendata/7707329152-revexp/), [`sshr2019`](https://www.nalog.gov.ru/opendata/7707329152-sshr2019/) | 25-е число | Новый выпуск заменяет версию своего отчётного года. |
+| [`paytax`](https://www.nalog.gov.ru/opendata/7707329152-paytax/) | 1 апреля | Публикуется отчётный год. Предыдущие годы остаются доступны. |
+| [`debtam`](https://www.nalog.gov.ru/opendata/7707329152-debtam/), [`snr`](https://www.nalog.gov.ru/opendata/7707329152-snr/), [`snrip`](https://www.nalog.gov.ru/opendata/7707329152-snrip/) | 25-е число | Публикуется срез на дату состояния из XML. Он заменяет сведения только для этой даты. |
+
+### Запуск из cron
+
+1. После миграций соберите `go build -o company-import ./cmd/import` в каталоге `backend`. Установите бинарник в `/opt/company-search/company-import`.
+2. Под учётной записью импортера создайте закрытые каталоги `/var/lib/company-search/import-tmp` и `/var/lib/company-search` для временных архивов, блокировки и журнала. В `/etc/company-search/import.env` с доступом только для оператора и импортера задайте `export DATABASE_URL='…'` с учётными данными для записи. API может работать с отдельной ролью чтения.
+3. Добавьте строку в пользовательский crontab импортера. Она выполняет проверки последовательно в 04:15 по времени хоста. Настройте ротацию `import.log` и оповещение по ошибкам в журнале.
+
+```cron
+15 4 * * * /usr/bin/flock -n /var/lib/company-search/import.lock /bin/sh -c '. /etc/company-search/import.env || exit 1; export TMPDIR=/var/lib/company-search/import-tmp; status=0; for dataset in rsmp revexp sshr2019 paytax debtam snr snrip; do /opt/company-search/company-import -check -dataset "$dataset" || status=1; done; exit "$status"' >> /var/lib/company-search/import.log 2>&1
+```
+
+Cron и ручной импорт используют одну блокировку PostgreSQL на набор. `release_missing` означает HTTP 404 или 410 по ожидаемому URL. Сверьте дату, путь и XSD с паспортом. `unknown_schema` означает неподдерживаемую версию XML в полученном ZIP. Обновите адаптер только после проверки новой схемы. Если ФНС изменила имя ZIP вместе с XSD, первым сигналом будет `release_missing`. Сбой оставляет указатель на прежний выпуск.
+
+```sql
+SELECT dataset_code, id, started_at, status, error_code, release_id, rows_seen
+FROM import_runs ORDER BY id DESC LIMIT 30;
+```
+
+При обрыве PostgreSQL откатывает незавершённую загрузку и очищает временные таблицы. Следующая проверка под блокировкой отмечает зависшую попытку как `interrupted`. После принудительного завершения процесса на диске может остаться `.part`. Удаляйте его только из выделенного каталога, когда задачи импорта остановлены.
+
+Под первый полный МСП выделите около 10 ГиБ свободного места под данные PostgreSQL и до 3 ГиБ под ZIP. При следующих импортах учитывайте накопленные выпуски, индексы и резервные копии. История выпусков пока сохраняется целиком. Для платежей, задолженности и режимов отдельной оценки пикового места в этапе 8 нет. [Замеры P0](../TODO.md#замеры-p0)
+
+### Откат и восстановление из резервной копии
+
+Сначала найдите активный ID и доступные версии. Сверьте дату выпуска и период перед переключением.
+
+```sql
+SELECT r.dataset_code, r.period_key, r.id, r.published_on,
+       EXISTS (SELECT 1 FROM published_releases p WHERE p.release_id = r.id) AS active
+FROM releases r WHERE r.status = 'published'
+ORDER BY r.dataset_code, r.period_key, r.published_on DESC;
+```
+
+```sh
+company-import -dataset revexp -rollback-current 42 -restore-release 41
+company-import -dataset debtam -rollback-current 57
+```
+
+Первый пример переключает выпуск внутри того же периода. Второй снимает публикацию с даты задолженности, если в базе доступен более ранний срез. Запрос без даты читает оставшийся последний срез, а запрос по снятой дате сообщает `not_loaded`. Оба варианта проверяют ожидаемый активный ID под блокировкой. Строки выпуска сохраняются. Проверка расписания пропускает уже загруженные выпуски, включая снятый с публикации. Чтобы отменить переключение внутри одного периода, поменяйте ID местами. После снятия отдельной даты для возврата её указателя требуется восстановление из бэкапа или операторская транзакция с блокировкой набора.
+
+Храните резервные копии в закрытом хранилище вне диска PostgreSQL. В примере `BACKUP_DSN` указывает на БД с правом чтения всех таблиц, а `RESTORE_DSN` указывает на отдельную пустую БД. Используйте клиентские утилиты PostgreSQL 17.
+
+```sh
+umask 077
+pg_dump --format=custom --file=company-search.dump "$BACKUP_DSN"
+pg_restore --exit-on-error --single-transaction --no-owner --no-privileges \
+  --dbname="$RESTORE_DSN" company-search.dump
+```
+
+Сравните указатели и число строк по выпускам с исходной БД. Запустите API с `DATABASE_URL` восстановленной базы и проверьте выдачу выбранных ИНН. Перед переключением рабочей среды примените её роли и права доступа.

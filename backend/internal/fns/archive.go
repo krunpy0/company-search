@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,6 +16,9 @@ import (
 
 	"golang.org/x/text/encoding/charmap"
 )
+
+var ErrReleaseMissing = errors.New("expected FNS ZIP not found")
+var ErrUnknownVersion = errors.New("unsupported FNS XML format version")
 
 func DownloadZIP(ctx context.Context, url string, maxBytes int64, timeout time.Duration) (*os.File, error) {
 	client := &http.Client{Timeout: timeout}
@@ -41,6 +45,9 @@ func download(ctx context.Context, client *http.Client, url string, maxBytes int
 		return nil, ctx.Err() == nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone {
+		return nil, false, fmt.Errorf("%w: HTTP %d for %s", ErrReleaseMissing, resp.StatusCode, url)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, resp.StatusCode >= 500 && resp.Header.Get("Retry-After") == "", fmt.Errorf("FNS returned HTTP %d", resp.StatusCode)
 	}
@@ -127,9 +134,12 @@ func readFNSXML(ctx context.Context, r io.Reader, name, version, info string, re
 			}
 			switch t.Name.Local {
 			case "Файл":
-				if open || attr(t, "ВерсФорм") != version || attr(t, "ТипИнф") != info ||
+				if open || attr(t, "ТипИнф") != info ||
 					!strings.EqualFold(attr(t, "ИдФайл"), strings.TrimSuffix(path.Base(name), path.Ext(name))) {
-					return fmt.Errorf("unexpected FNS XML root metadata or format version")
+					return fmt.Errorf("unexpected FNS XML root metadata")
+				}
+				if actual := attr(t, "ВерсФорм"); actual != version {
+					return fmt.Errorf("%w: got %q, expected %q", ErrUnknownVersion, actual, version)
 				}
 				expected, err = strconv.Atoi(attr(t, "КолДок"))
 				if err != nil || expected <= 0 {

@@ -76,7 +76,8 @@ func TestReadRevexp(t *testing.T) {
 			if tc.ok && (err != nil || count != 1) || !tc.ok && err == nil {
 				t.Fatalf("read %d rows: %v", count, err)
 			}
-			if tc.corrupt && !errors.Is(err, zip.ErrChecksum) || tc.cancel && !errors.Is(err, context.Canceled) {
+			if tc.corrupt && !errors.Is(err, zip.ErrChecksum) || tc.cancel && !errors.Is(err, context.Canceled) ||
+				tc.name == "unknown version" && !errors.Is(err, ErrUnknownVersion) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 		})
