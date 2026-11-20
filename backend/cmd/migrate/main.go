@@ -28,7 +28,7 @@ func migrate() error {
 	if err != nil {
 		return fmt.Errorf("invalid DATABASE_URL")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 	conn, err := pgx.ConnectConfig(ctx, config)
 	if err != nil {

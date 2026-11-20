@@ -1,0 +1,362 @@
+openapi: 3.1.0
+info:
+  title: Company Search
+  version: 1.0.0
+  description: Local coverage is limited to published FNS releases. DaData is disabled.
+servers:
+  - url: /
+    description: API server
+security: []
+paths:
+  /v1/companies:
+    get:
+      operationId: searchCompanies
+      summary: Search published FNS observations. Exact names rank before trigram matches.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 200}
+        - name: mode
+          in: query
+          required: false
+          schema: {type: string, enum: [auto, inn, registration, name], default: auto}
+        - name: kind
+          in: query
+          required: false
+          schema: {type: string, enum: [legal, entrepreneur]}
+        - name: limit
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1, maximum: 100, default: 20}
+        - name: cursor
+          in: query
+          required: false
+          schema: {type: string, maxLength: 4096}
+      responses:
+        '200':
+          description: Search published FNS observations. Exact names rank before trigram matches.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Search'}
+        '400':
+          description: Invalid parameter, ID or cursor.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '409':
+          description: Published releases changed. Restart search without a cursor.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '429':
+          description: The local request concurrency limit was reached.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '503':
+          description: Local data temporarily unavailable.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /v1/companies/{id}:
+    get:
+      operationId: getCompany
+      summary: Get the profile and section availability.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Key returned by search. An INN with multiple registrations returns 409.
+          schema: {type: string, pattern: '^(reg:([0-9]{13}|[0-9]{15})|inn:([0-9]{10}|[0-9]{12}))$'}
+      responses:
+        '200':
+          description: Get the profile and section availability.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Profile'}
+        '400':
+          description: Invalid parameter, ID or cursor.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '404':
+          description: No matching subject in published local data.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '409':
+          description: The INN matches multiple registrations. Select a candidate ID.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '429':
+          description: The local request concurrency limit was reached.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '503':
+          description: Local data temporarily unavailable.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /v1/companies/{id}/financials:
+    get:
+      operationId: getCompanyFinancials
+      summary: Get annual income and expenses by taxpayer INN.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Key returned by search. An INN with multiple registrations returns 409.
+          schema: {type: string, pattern: '^(reg:([0-9]{13}|[0-9]{15})|inn:([0-9]{10}|[0-9]{12}))$'}
+        - name: year
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1900, maximum: 9999}
+      responses:
+        '200':
+          description: Get annual income and expenses by taxpayer INN.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Financials'}
+        '400':
+          description: Invalid parameter, ID or cursor.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '404':
+          description: No matching subject in published local data.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '409':
+          description: The INN matches multiple registrations. Select a candidate ID.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '429':
+          description: The local request concurrency limit was reached.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '503':
+          description: Local data temporarily unavailable.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /v1/companies/{id}/sources:
+    get:
+      operationId: getCompanySources
+      summary: Get the releases and documents used by the company response.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Key returned by search. An INN with multiple registrations returns 409.
+          schema: {type: string, pattern: '^(reg:([0-9]{13}|[0-9]{15})|inn:([0-9]{10}|[0-9]{12}))$'}
+      responses:
+        '200':
+          description: Get the releases and documents used by the company response.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Observations'}
+        '400':
+          description: Invalid parameter, ID or cursor.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '404':
+          description: No matching subject in published local data.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '409':
+          description: The INN matches multiple registrations. Select a candidate ID.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '429':
+          description: The local request concurrency limit was reached.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '503':
+          description: Local data temporarily unavailable.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+components:
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, request_id]
+          properties:
+            code: {type: string}
+            message: {type: string}
+            request_id: {type: string}
+            candidates: {type: array, items: {type: string}}
+    Evidence:
+      type: object
+      required: [source_ref, as_of, document_id, file]
+      properties:
+        source_ref: {type: string}
+        as_of: {type: string, format: date}
+        document_id: {type: string}
+        file: {type: string}
+        document_date: {type: string, format: date}
+    Name:
+      allOf:
+        - $ref: '#/components/schemas/Evidence'
+        - type: object
+          required: [value]
+          properties:
+            value: {type: string}
+    Identity:
+      type: object
+      required: [id, kind, inn, registration_number, name, registration_evidence]
+      properties:
+        id: {type: string}
+        kind: {type: string, enum: [legal, entrepreneur]}
+        inn: {type: string}
+        registration_number: {type: [string, 'null']}
+        registration_evidence:
+          oneOf:
+            - $ref: '#/components/schemas/Evidence'
+            - type: 'null'
+        name:
+          oneOf:
+            - $ref: '#/components/schemas/Name'
+            - type: 'null'
+    SME:
+      allOf:
+        - $ref: '#/components/schemas/Evidence'
+        - type: object
+          required: [region_code, okved, included_on, category, subject_type, employees, employee_year]
+          properties:
+            region_code: {type: string}
+            okved: {type: [string, 'null']}
+            included_on: {type: string, format: date}
+            category: {type: string, enum: ['1', '2', '3']}
+            subject_type: {type: string, enum: ['1', '2', '3']}
+            employees: {type: [integer, 'null'], minimum: 0}
+            employee_year: {type: [integer, 'null']}
+    Response:
+      type: object
+      required: [sources, coverage, warnings]
+      properties:
+        sources:
+          type: object
+          description: Published P0 releases keyed by source_ref.
+          additionalProperties:
+            type: object
+            required: [publisher, dataset, published_on, period, url, download_url]
+            properties:
+              publisher: {type: string}
+              dataset: {type: string, enum: [rsmp, revexp]}
+              published_on: {type: string, format: date}
+              period: {type: string}
+              url: {type: string, format: uri}
+              download_url: {type: string, format: uri}
+        coverage:
+          type: object
+          required: [local, dadata]
+          properties:
+            local: {type: string, enum: [partial, not_loaded]}
+            dadata: {const: disabled}
+        warnings:
+          type: array
+          items:
+            type: object
+            required: [source, code]
+            properties:
+              source: {type: string}
+              code: {type: string}
+    Availability:
+      type: string
+      enum: [found, not_published, not_applicable, not_loaded]
+    Section:
+      type: object
+      required: [state]
+      properties:
+        state: {$ref: '#/components/schemas/Availability'}
+        years: {type: array, items: {type: integer}}
+    Search:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          required: [items, next_cursor]
+          properties:
+            items:
+              type: array
+              items: {$ref: '#/components/schemas/Identity'}
+            next_cursor: {type: [string, 'null']}
+    Profile:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          required: [id, company, sections]
+          properties:
+            id: {type: string}
+            company:
+              allOf:
+                - $ref: '#/components/schemas/Identity'
+                - type: object
+                  required: [sme]
+                  properties:
+                    sme:
+                      oneOf:
+                        - $ref: '#/components/schemas/SME'
+                        - type: 'null'
+            sections:
+              type: object
+              required: [registration, sme, financials, taxes]
+              properties:
+                registration: {$ref: '#/components/schemas/Section'}
+                sme: {$ref: '#/components/schemas/Section'}
+                financials: {$ref: '#/components/schemas/Section'}
+                taxes: {$ref: '#/components/schemas/Section'}
+    Financials:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          required: [id, items, years, state]
+          properties:
+            id: {type: string}
+            state: {$ref: '#/components/schemas/Availability'}
+            years: {type: array, items: {type: integer}}
+            items:
+              type: array
+              items:
+                allOf:
+                  - $ref: '#/components/schemas/Evidence'
+                  - type: object
+                    required: [year, display_name, income, expense, currency, scope]
+                    properties:
+                      year: {type: integer}
+                      display_name: {type: string}
+                      income: {type: string}
+                      expense: {type: string}
+                      currency: {const: RUB}
+                      scope: {const: taxpayer}
+    Observations:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          required: [id, observations]
+          properties:
+            id: {type: string}
+            observations:
+              type: array
+              items:
+                type: object
+                required: [section, evidence]
+                properties:
+                  section: {type: string, enum: [sme, financials]}
+                  year: {type: integer}
+                  evidence: {$ref: '#/components/schemas/Evidence'}
+

@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/krunpy0/company-search/backend/internal/httpapi"
 )
 
 func main() {
@@ -38,6 +39,7 @@ func main() {
 		}
 		c.Status(204)
 	})
+	httpapi.RegisterCompanies(r, pool)
 	srv := &http.Server{Addr: env("HTTP_ADDR", ":8080"), Handler: r, ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		slog.Info("starting HTTP server", "address", srv.Addr)
