@@ -25,18 +25,19 @@ const passport = "https://www.nalog.gov.ru/rn27/opendata/7707329152-revexp/"
 const baseURL = "https://file.nalog.ru/opendata/7707329152-revexp/"
 
 func main() {
+	dataset := flag.String("dataset", revexp, "FNS dataset (revexp or rsmp)")
 	date := flag.String("published-on", "", "FNS release date (YYYY-MM-DD)")
 	archive := flag.String("archive", "", "optional local copy of the official ZIP")
 	flag.Parse()
 	published, err := time.Parse(time.DateOnly, *date)
-	if err != nil || published.Year() < 2019 || flag.NArg() != 0 {
+	if err != nil || published.Year() < 2019 || flag.NArg() != 0 || (*dataset != revexp && *dataset != "rsmp") {
 		flag.Usage()
 		os.Exit(2)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := run(ctx, revexp, published, *archive); err != nil {
-		slog.Error("import failed", "dataset", revexp, "error", err)
+	if err := run(ctx, *dataset, published, *archive); err != nil {
+		slog.Error("import failed", "dataset", *dataset, "error", err)
 		os.Exit(1)
 	}
 }
@@ -48,6 +49,13 @@ func run(ctx context.Context, dataset string, published time.Time, archive strin
 	timeout := 3 * time.Minute
 	passportURL, schemaURL, version := passport, baseURL+"structure-20180110.xsd", fns.RevexpVersion
 	url := baseURL + "data-" + published.Format("20060102") + "-structure-20180110.zip"
+	if dataset == "rsmp" {
+		const rsmpBase = "https://file.nalog.ru/opendata/7707329152-rsmp/"
+		period, lockID, maxZIP, timeout = "current", 71003, fns.MaxRSMPZIP, 30*time.Minute
+		passportURL = "https://www.nalog.gov.ru/opendata/7707329152-rsmp/"
+		schemaURL, version = rsmpBase+"structure-12052026.xsd", fns.RSMPVersion
+		url = rsmpBase + "data-" + published.Format("02012006") + "-structure-12052026.zip"
+	}
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
 		return fmt.Errorf("DATABASE_URL is required")
@@ -160,7 +168,11 @@ func run(ctx context.Context, dataset string, published time.Time, archive strin
 		dataset, published, period, url, schemaURL, version, digest, info.Size()).Scan(&releaseID); err != nil {
 		return err
 	}
-	rows, err = loadRevexp(ctx, tx, z, published, year, releaseID, runID)
+	if dataset == "rsmp" {
+		rows, err = loadRSMP(ctx, tx, z, published, releaseID, runID)
+	} else {
+		rows, err = loadRevexp(ctx, tx, z, published, year, releaseID, runID)
+	}
 	if err != nil {
 		return err
 	}
