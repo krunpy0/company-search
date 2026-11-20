@@ -30,6 +30,22 @@ WITH sme AS NOT MATERIALIZED (
     WHERE o.release_id = (
         SELECT release_id FROM published_releases WHERE dataset_code = 'snr' ORDER BY period_key DESC LIMIT 1
     ) AND $1 = 'inn' AND $3 <> 'entrepreneur' AND o.reg_no IS NULL AND o.inn = $2
+    UNION ALL
+    SELECT t.inn, NULL::text, t.as_of, t.release_id, t.source_doc_id, t.source_file, t.document_date
+    FROM published_releases p
+    CROSS JOIN LATERAL (
+        SELECT * FROM tax_payments WHERE release_id = p.release_id AND inn = $2
+        ORDER BY source_doc_id, line_no LIMIT 1
+    ) t
+    WHERE p.dataset_code = 'paytax' AND $1 = 'inn' AND $3 <> 'entrepreneur'
+    UNION ALL
+    SELECT t.inn, NULL::text, t.as_of, t.release_id, t.source_doc_id, t.source_file, t.document_date
+    FROM published_releases p
+    CROSS JOIN LATERAL (
+        SELECT * FROM tax_debts WHERE release_id = p.release_id AND inn = $2
+        ORDER BY source_doc_id, line_no LIMIT 1
+    ) t
+    WHERE p.dataset_code = 'debtam' AND $1 = 'inn' AND $3 <> 'entrepreneur'
 ), matches AS (
     SELECT 'reg:' || reg_no AS id, reg_no, inn, kind, display_name, as_of, release_id,
            source_doc_id, source_file, document_date, CASE WHEN display_name IS NULL THEN 2 ELSE 0 END AS priority

@@ -86,7 +86,7 @@ func Sources(ctx context.Context, tx pgx.Tx) (map[string]Source, string, error) 
         FROM published_releases p JOIN releases r ON r.id = p.release_id
         JOIN datasets d ON d.code = p.dataset_code
         WHERE (p.dataset_code = 'rsmp' AND p.period_key = 'current')
-           OR p.dataset_code IN ('revexp', 'sshr2019', 'snr', 'snrip')
+           OR p.dataset_code IN ('revexp', 'sshr2019', 'snr', 'snrip', 'paytax', 'debtam')
         ORDER BY r.id`)
 	if err != nil {
 		return nil, "", err

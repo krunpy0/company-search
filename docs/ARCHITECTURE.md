@@ -78,7 +78,7 @@ backend/
 | `profile_observations` | Ключ `(release_id, subject_key)`, `inn text`, `reg_no FK NULL`, `display_name text`, `normalized_name text`, `region_code text NULL`, `okved text NULL`, `as_of date`, `source_doc_id text`. |
 | `sme_facts` | Ключ `(release_id, reg_no)`, `as_of date`, `category text`, `included_on date`, `source_doc_id text`. |
 | `annual_financials`, `headcounts` | Ключ `(release_id, inn, report_year)`, `report_year smallint`, `as_of date`, `source_doc_id text`. Показатели `income numeric`, `expense numeric` или `employees integer`. |
-| `tax_payments`, `tax_debts` | Ключ по выпуску, ИНН, `tax_key text` и отчётному году или дате среза. Исходное `tax_name text`, `as_of date`, `source_doc_id text`. Платежи содержат `report_year smallint` и `amount numeric`, долг содержит `principal`, `penalties`, `fines`, `total` типа `numeric`. |
+| `tax_payments`, `tax_debts` | Ключ `(release_id, inn, source_doc_id, line_no)`. Исходное `tax_name text`, дата состояния и имя файла сохраняются на каждой строке. Отчётный год платежей берётся из даты состояния, сумма хранится как `numeric`. Задолженность содержит `principal`, `penalties`, `fines`, `total` типа `numeric`. Компоненты допускают NULL, общий размер долга берётся из источника. |
 | `tax_regimes` | Ключ по выпуску, субъекту и `regime_code text`. `inn text`, `reg_no FK NULL`, `as_of date`, `source_doc_id text`. Для юрлиц сохраняется смысл исходных признаков XSD. |
 
 Факты ссылаются на `releases`; ключ происхождения включает документ источника. Индексы чтения начинаются с идентификатора субъекта и включают период или выпуск. Для названия используем GIN с `pg_trgm`. Значения денег передаём десятичными строками. Поля без значения допускают `NULL`, а опубликованный ноль сохраняется. Основные факты хранятся в типизированных колонках. [Индексы pg_trgm](https://www.postgresql.org/docs/current/pgtrgm.html)
@@ -106,7 +106,7 @@ backend/
 | `GET /v1/companies` | `q`, необязательные `kind`, `mode=auto\|inn\|registration\|name`, `limit`, `cursor`. Ответ содержит `items`, `next_cursor`, покрытие и предупреждения. |
 | `GET /v1/companies/{id}` | Идентификатор из поиска. Карточка содержит регистрационные сведения, МСП, численность и доступность разделов. |
 | `GET /v1/companies/{id}/financials` | Годовые доходы и расходы, фильтр `year`, доступные периоды. |
-| `GET /v1/companies/{id}/taxes` | Платежи, задолженность, спецрежимы. Фильтры `year`, `as_of`, `section=payments\|debts\|regimes`. Списки поддерживают пагинацию. |
+| `GET /v1/companies/{id}/taxes` | Платежи, задолженность, спецрежимы. Фильтры `year`, `as_of`, `section=payments\|debts\|regimes`. Платежи и задолженность поддерживают пагинацию по `next_offset`. Без `section` выдаются спецрежимы. |
 | `GET /v1/companies/{id}/sources` | Источники карточки, ссылки, даты публикации, наблюдения и покрытие. |
 | `GET /healthz`, `GET /readyz` | Доступность процесса и готовность локального чтения. |
 

@@ -149,7 +149,7 @@ paths:
   /v1/companies/{id}/taxes:
     get:
       operationId: getCompanyTaxes
-      summary: Get published special tax regimes.
+      summary: Get published tax payments, debts or special regimes.
       parameters:
         - name: id
           in: path
@@ -157,17 +157,32 @@ paths:
           schema: {type: string, pattern: '^(reg:([0-9]{13}|[0-9]{15})|inn:([0-9]{10}|[0-9]{12}))$'}
         - name: section
           in: query
-          schema: {type: string, enum: [regimes], default: regimes}
+          schema: {type: string, enum: [payments, debts, regimes], default: regimes}
         - name: as_of
           in: query
-          description: Exact observation date. Defaults to the latest loaded snapshot for the subject type.
+          description: Exact observation date for debts and regimes. Defaults to the latest loaded snapshot for the subject type.
           schema: {type: string, format: date}
+        - name: year
+          in: query
+          description: Exact report year for payments. Defaults to all loaded years.
+          schema: {type: integer, minimum: 1900, maximum: 9999}
+        - name: limit
+          in: query
+          description: Payment or debt page size.
+          schema: {type: integer, minimum: 1, maximum: 100, default: 100}
+        - name: offset
+          in: query
+          description: Use next_offset from the previous payment or debt page.
+          schema: {type: integer, minimum: 0, maximum: 1000000, default: 0}
       responses:
         '200':
           description: The selected snapshot and its observations.
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/TaxRegimes'}
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/TaxRegimes'
+                  - $ref: '#/components/schemas/MoneyTaxes'
         '400':
           description: Invalid ID, date or section.
           content:
@@ -445,6 +460,36 @@ components:
                       expense: {type: string}
                       currency: {const: RUB}
                       scope: {const: taxpayer}
+    MoneyTaxes:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          required: [id, state, items, next_offset]
+          properties:
+            id: {type: string}
+            state: {type: string, enum: [found, not_published, not_loaded, not_applicable]}
+            next_offset: {type: [integer, 'null']}
+            items:
+              type: array
+              items:
+                allOf:
+                  - $ref: '#/components/schemas/Evidence'
+                  - type: object
+                    required: [tax_name, scope, currency]
+                    properties:
+                      tax_name: {type: string}
+                      scope: {const: taxpayer}
+                      currency: {const: RUB}
+                      year: {type: integer}
+                      amount: {type: string}
+                      debt:
+                        type: object
+                        required: [principal, penalties, fines, total]
+                        properties:
+                          principal: {type: [string, 'null']}
+                          penalties: {type: [string, 'null']}
+                          fines: {type: [string, 'null']}
+                          total: {type: string}
     TaxRegimes:
       allOf:
         - $ref: '#/components/schemas/Response'
@@ -487,4 +532,3 @@ components:
                   section: {type: string, enum: [sme, financials, headcount, regimes]}
                   year: {type: integer}
                   evidence: {$ref: '#/components/schemas/Evidence'}
-

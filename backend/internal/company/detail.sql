@@ -24,6 +24,22 @@ WITH sme AS NOT MATERIALIZED (
     SELECT o.display_name, o.as_of, o.release_id, o.source_doc_id, o.source_file, o.document_date
     FROM published_releases p JOIN tax_regime_observations o ON o.release_id = p.release_id
     WHERE p.dataset_code = 'snr' AND o.inn = $2 AND o.reg_no IS NULL
+    UNION ALL
+    SELECT NULL::text, t.as_of, t.release_id, t.source_doc_id, t.source_file, t.document_date
+    FROM published_releases p
+    CROSS JOIN LATERAL (
+        SELECT * FROM tax_payments WHERE release_id = p.release_id AND inn = $2
+        ORDER BY source_doc_id, line_no LIMIT 1
+    ) t
+    WHERE p.dataset_code = 'paytax' AND $1 = 'inn'
+    UNION ALL
+    SELECT NULL::text, t.as_of, t.release_id, t.source_doc_id, t.source_file, t.document_date
+    FROM published_releases p
+    CROSS JOIN LATERAL (
+        SELECT * FROM tax_debts WHERE release_id = p.release_id AND inn = $2
+        ORDER BY source_doc_id, line_no LIMIT 1
+    ) t
+    WHERE p.dataset_code = 'debtam' AND $1 = 'inn'
 ), identity AS (
     SELECT 'reg:' || s.reg_no AS id, s.reg_no, s.inn, s.kind,
            s.display_name, s.region_code, s.okved, s.included_on, s.category, s.subject_type,

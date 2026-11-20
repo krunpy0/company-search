@@ -207,26 +207,47 @@ func detail(c *gin.Context, s snapshot, lookup PartyLookup) error {
 	route := c.FullPath()
 	isTaxes := strings.HasSuffix(route, "/taxes")
 	isFinancials := strings.HasSuffix(route, "/financials")
-	asOf := ""
+	asOf, section := "", ""
+	limit, offset := 100, 0
 	if isTaxes {
-		if section := c.DefaultQuery("section", "regimes"); section != "regimes" {
+		section = c.DefaultQuery("section", "regimes")
+		if section != "regimes" && section != "payments" && section != "debts" {
 			fail(c, 400, "invalid_query", "Invalid tax section")
 			return nil
 		}
 		if raw, present := c.GetQuery("as_of"); present {
-			if _, err := time.Parse(time.DateOnly, raw); err != nil {
+			if _, err := time.Parse(time.DateOnly, raw); err != nil || section == "payments" {
 				fail(c, 400, "invalid_query", "Invalid observation date")
 				return nil
 			}
 			asOf = raw
 		}
 	}
-	if raw, present := c.GetQuery("year"); present && isFinancials {
+	if raw, present := c.GetQuery("year"); present && (isFinancials || isTaxes) {
 		var err error
 		year, err = strconv.Atoi(raw)
-		if err != nil || len(raw) != 4 || !digits(raw) || year < 1900 {
+		if err != nil || len(raw) != 4 || !digits(raw) || year < 1900 || (isTaxes && section != "payments") {
 			fail(c, 400, "invalid_query", "Invalid report year")
 			return nil
+		}
+	}
+
+	if isTaxes {
+		for _, param := range []struct {
+			name     string
+			value    *int
+			min, max int
+		}{
+			{"limit", &limit, 1, 100}, {"offset", &offset, 0, 1000000},
+		} {
+			if raw, present := c.GetQuery(param.name); present {
+				value, err := strconv.Atoi(raw)
+				if err != nil || !digits(raw) || value < param.min || value > param.max || section == "regimes" {
+					fail(c, 400, "invalid_query", "Invalid tax pagination")
+					return nil
+				}
+				*param.value = value
+			}
 		}
 	}
 
@@ -289,7 +310,23 @@ func detail(c *gin.Context, s snapshot, lookup PartyLookup) error {
 
 	item := candidates[0]
 	regimes := company.TaxRegimes{}
-	if !isFinancials {
+	var money company.MoneyTax
+	moneyDataset := ""
+	if section == "payments" {
+		moneyDataset = "paytax"
+		period := ""
+		if year != 0 {
+			period = strconv.Itoa(year)
+		}
+		money, err = company.MoneyTaxes(ctx, s.Tx, item, moneyDataset, period, limit, offset)
+	} else if section == "debts" {
+		moneyDataset = "debtam"
+		money, err = company.MoneyTaxes(ctx, s.Tx, item, moneyDataset, asOf, limit, offset)
+	}
+	if err != nil {
+		return err
+	}
+	if !isFinancials && moneyDataset == "" {
 		regimes, err = company.Regimes(ctx, s.Tx, item, asOf)
 		if err != nil {
 			return err
@@ -335,6 +372,9 @@ func detail(c *gin.Context, s snapshot, lookup PartyLookup) error {
 		}
 		if len(regimes.Items) > 0 {
 			taxpayerDatasets = append(taxpayerDatasets, "snr")
+		}
+		if len(money.Items) > 0 {
+			taxpayerDatasets = append(taxpayerDatasets, moneyDataset)
 		}
 		if len(taxpayerDatasets) > 0 {
 			registrations, err := company.Resolve(ctx, s.Tx, "inn", item.INN)
@@ -383,6 +423,8 @@ func detail(c *gin.Context, s snapshot, lookup PartyLookup) error {
 	switch {
 	case isFinancials:
 		body["items"], body["years"], body["state"] = filtered, years, financeState
+	case moneyDataset != "":
+		body["items"], body["state"], body["next_offset"] = money.Items, money.State, money.NextOffset
 	case isTaxes:
 		body["items"], body["as_of"], body["state"] = regimes.Items, regimes.AsOf, regimes.State
 	case strings.HasSuffix(route, "/sources"):
