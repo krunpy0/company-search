@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Company Search
   version: 1.0.0
-  description: Local coverage is limited to published FNS releases. DaData is disabled.
+  description: Local coverage is limited to published FNS releases. DaData is disabled by default.
 servers:
   - url: /
     description: API server
@@ -11,7 +11,7 @@ paths:
   /v1/companies:
     get:
       operationId: searchCompanies
-      summary: Search published FNS observations. Exact names rank before trigram matches.
+      summary: Search published FNS observations and optional DaData registrations.
       parameters:
         - name: q
           in: query
@@ -28,6 +28,7 @@ paths:
         - name: limit
           in: query
           required: false
+          description: Local page size. Exact searches can also return DaData registrations on the first page.
           schema: {type: integer, minimum: 1, maximum: 100, default: 20}
         - name: cursor
           in: query
@@ -35,7 +36,7 @@ paths:
           schema: {type: string, maxLength: 4096}
       responses:
         '200':
-          description: Search published FNS observations. Exact names rank before trigram matches.
+          description: Exact names rank before trigram matches in the local results.
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Search'}
@@ -55,7 +56,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
         '503':
-          description: Local data temporarily unavailable.
+          description: Local data unavailable, or exact lookup needs DaData and the provider is unavailable.
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
@@ -81,7 +82,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
         '404':
-          description: No matching subject in published local data.
+          description: No matching subject in the checked sources.
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
@@ -96,7 +97,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
         '503':
-          description: Local data temporarily unavailable.
+          description: Local data unavailable, or the subject could not be resolved because DaData is unavailable.
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
@@ -200,6 +201,15 @@ components:
             message: {type: string}
             request_id: {type: string}
             candidates: {type: array, items: {type: string}}
+        warnings:
+          type: array
+          items: {$ref: '#/components/schemas/Warning'}
+    Warning:
+      type: object
+      required: [source, code]
+      properties:
+        source: {type: string}
+        code: {type: string}
     Evidence:
       type: object
       required: [source_ref, as_of, document_id, file]
@@ -267,18 +277,36 @@ components:
           required: [local, dadata]
           properties:
             local: {type: string, enum: [partial, not_loaded]}
-            dadata: {const: disabled}
+            dadata:
+              type: string
+              enum: [disabled, not_requested, checked, limited, unavailable]
+              description: Name suggestions are ranked and bounded. Exact lookup is limited if the provider reaches its result cap.
         warnings:
           type: array
-          items:
-            type: object
-            required: [source, code]
-            properties:
-              source: {type: string}
-              code: {type: string}
+          items: {$ref: '#/components/schemas/Warning'}
+        dadata: {$ref: '#/components/schemas/DaDataRegistration'}
+    DaDataRegistration:
+      type: object
+      required: [id, inn, registration_number, kind, source, source_url, as_of, retrieved_at]
+      properties:
+        id: {type: string}
+        inn: {type: string}
+        registration_number: {type: string}
+        kind: {type: string, enum: [legal, entrepreneur]}
+        name: {type: string}
+        kpp: {type: string}
+        okved: {type: string}
+        status: {type: string}
+        registered_on: {type: string, format: date}
+        last_changed_on: {type: string, format: date}
+        address: {type: string, description: Standardized address of a legal entity.}
+        source: {const: dadata}
+        source_url: {type: string, format: uri}
+        as_of: {type: 'null', description: DaData does not provide a snapshot date for this observation.}
+        retrieved_at: {type: string, format: date-time}
     Availability:
       type: string
-      enum: [found, not_published, not_applicable, not_loaded]
+      enum: [found, not_published, not_applicable, not_loaded, unavailable]
     Section:
       type: object
       required: [state]
@@ -293,7 +321,17 @@ components:
           properties:
             items:
               type: array
-              items: {$ref: '#/components/schemas/Identity'}
+              items:
+                allOf:
+                  - $ref: '#/components/schemas/Identity'
+                  - type: object
+                    properties:
+                      dadata: {$ref: '#/components/schemas/DaDataRegistration'}
+            external_suggestions:
+              type: array
+              maxItems: 20
+              description: DaData suggestions on the first page of a name search.
+              items: {$ref: '#/components/schemas/DaDataRegistration'}
             next_cursor: {type: [string, 'null']}
     Profile:
       allOf:

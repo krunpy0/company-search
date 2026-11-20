@@ -3,16 +3,19 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
+	"github.com/krunpy0/company-search/backend/internal/dadata"
 	"github.com/krunpy0/company-search/backend/internal/httpapi"
 )
 
@@ -33,7 +36,10 @@ func main() {
 	}
 	defer pool.Close()
 	r := gin.New()
-	r.Use(gin.Recovery())
+	r.Use(gin.CustomRecoveryWithWriter(io.Discard, func(c *gin.Context, _ any) {
+		slog.Error("request panic", "route", c.FullPath())
+		c.AbortWithStatus(http.StatusInternalServerError)
+	}))
 	r.GET("/healthz", func(c *gin.Context) { c.Status(http.StatusNoContent) })
 	r.GET("/readyz", func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
@@ -44,7 +50,22 @@ func main() {
 		}
 		c.Status(204)
 	})
-	httpapi.RegisterCompanies(r, pool)
+	var lookup httpapi.PartyLookup
+	enabled, err := strconv.ParseBool(env("DADATA_ENABLED", "false"))
+	if err != nil {
+		slog.Error("invalid DADATA_ENABLED")
+		os.Exit(1)
+	}
+	if enabled {
+		budget, _ := strconv.Atoi(os.Getenv("DADATA_DAILY_BUDGET"))
+		client, err := dadata.New(os.Getenv("DADATA_TOKEN"), budget)
+		if err != nil {
+			slog.Error("DaData requires DADATA_TOKEN and a positive DADATA_DAILY_BUDGET")
+			os.Exit(1)
+		}
+		lookup = client.Lookup
+	}
+	httpapi.RegisterCompanies(r, pool, lookup)
 	srv := &http.Server{Addr: env("HTTP_ADDR", ":8080"), Handler: r, ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		slog.Info("starting HTTP server", "address", srv.Addr)
