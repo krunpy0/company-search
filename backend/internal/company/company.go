@@ -15,12 +15,13 @@ var searchSQL string
 var detailSQL string
 
 type Source struct {
-	Publisher   string `json:"publisher"`
-	Dataset     string `json:"dataset"`
-	PublishedOn string `json:"published_on"`
-	Period      string `json:"period"`
-	URL         string `json:"url"`
-	DownloadURL string `json:"download_url"`
+	Publisher        string `json:"publisher"`
+	Dataset          string `json:"dataset"`
+	PublishedOn      string `json:"published_on"`
+	Period           string `json:"period"`
+	URL              string `json:"url"`
+	DownloadURL      string `json:"download_url"`
+	QuarantinedCount int64  `json:"quarantined_count,omitempty"`
 }
 
 type Evidence struct {
@@ -78,10 +79,14 @@ type Match struct {
 
 func Sources(ctx context.Context, tx pgx.Tx) (map[string]Source, string, error) {
 	rows, err := tx.Query(ctx, `
-        SELECT r.id, d.publisher, d.code, r.published_on::text, p.period_key, d.passport_url, r.download_url
+        SELECT r.id, d.publisher, d.code, r.published_on::text, p.period_key, d.passport_url, r.download_url,
+               CASE WHEN d.code = 'snrip' THEN (
+                   SELECT count(*) FROM tax_regime_quarantine q WHERE q.release_id = r.id
+               ) ELSE 0 END
         FROM published_releases p JOIN releases r ON r.id = p.release_id
         JOIN datasets d ON d.code = p.dataset_code
-        WHERE (p.dataset_code = 'rsmp' AND p.period_key = 'current') OR p.dataset_code = 'revexp'
+        WHERE (p.dataset_code = 'rsmp' AND p.period_key = 'current')
+           OR p.dataset_code IN ('revexp', 'sshr2019', 'snr', 'snrip')
         ORDER BY r.id`)
 	if err != nil {
 		return nil, "", err
@@ -92,7 +97,7 @@ func Sources(ctx context.Context, tx pgx.Tx) (map[string]Source, string, error) 
 	for rows.Next() {
 		var id int64
 		var s Source
-		if err := rows.Scan(&id, &s.Publisher, &s.Dataset, &s.PublishedOn, &s.Period, &s.URL, &s.DownloadURL); err != nil {
+		if err := rows.Scan(&id, &s.Publisher, &s.Dataset, &s.PublishedOn, &s.Period, &s.URL, &s.DownloadURL, &s.QuarantinedCount); err != nil {
 			return nil, "", err
 		}
 		sources[sourceRef(id)] = s
@@ -122,9 +127,9 @@ func Search(ctx context.Context, tx pgx.Tx, mode, query, kind string, rank int, 
 		var source int64
 		var evidence Evidence
 		var regSource *int64
-		var regAsOf, regDocument, regFile *string
+		var regAsOf, regDocument, regFile, regDate *string
 		if err := rows.Scan(&m.ID, &m.Registration, &m.INN, &m.Kind, &name, &evidence.AsOf,
-			&source, &evidence.DocumentID, &evidence.File, &evidence.DocumentDate, &m.Rank, &regSource, &regAsOf, &regDocument, &regFile); err != nil {
+			&source, &evidence.DocumentID, &evidence.File, &evidence.DocumentDate, &m.Rank, &regSource, &regAsOf, &regDocument, &regFile, &regDate); err != nil {
 			return nil, err
 		}
 		if name != nil {
@@ -132,7 +137,7 @@ func Search(ctx context.Context, tx pgx.Tx, mode, query, kind string, rank int, 
 			m.Name = &Name{Value: *name, Evidence: evidence}
 		}
 		if regSource != nil {
-			m.RegistrationEvidence = &Evidence{SourceRef: sourceRef(*regSource), AsOf: *regAsOf, DocumentID: *regDocument, File: *regFile}
+			m.RegistrationEvidence = &Evidence{SourceRef: sourceRef(*regSource), AsOf: *regAsOf, DocumentID: *regDocument, File: *regFile, DocumentDate: regDate}
 		}
 		items = append(items, m)
 	}
@@ -148,22 +153,28 @@ func Resolve(ctx context.Context, tx pgx.Tx, mode, number string) ([]Detail, err
 	var details []Detail
 	for rows.Next() {
 		var item Detail
-		var name, region, included, category, subject, asOf, documentID, file *string
+		var name, region, included, category, subject, asOf, documentID, file, docDate *string
 		var source *int64
 		var sme SME
 		if err := rows.Scan(&item.ID, &item.Registration, &item.INN, &item.Kind, &name, &region,
 			&sme.OKVED, &included, &category, &subject, &sme.Employees, &sme.EmployeeYear,
-			&asOf, &source, &documentID, &file); err != nil {
+			&asOf, &source, &documentID, &file, &docDate); err != nil {
 			return nil, err
 		}
+		var evidence Evidence
 		if source != nil {
-			sme.Evidence = Evidence{SourceRef: sourceRef(*source), AsOf: *asOf, DocumentID: *documentID, File: *file}
+			evidence = Evidence{SourceRef: sourceRef(*source), AsOf: *asOf, DocumentID: *documentID, File: *file, DocumentDate: docDate}
+			if item.Registration != nil {
+				item.RegistrationEvidence = &evidence
+			}
+		}
+		if region != nil {
+			sme.Evidence = evidence
 			sme.Region, sme.IncludedOn, sme.Category, sme.SubjectType = *region, *included, *category, *subject
 			item.SME = &sme
-			item.RegistrationEvidence = &sme.Evidence
-			if name != nil {
-				item.Name = &Name{Value: *name, Evidence: sme.Evidence}
-			}
+		}
+		if name != nil {
+			item.Name = &Name{Value: *name, Evidence: evidence}
 		}
 		details = append(details, item)
 	}

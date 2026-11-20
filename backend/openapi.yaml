@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Company Search
   version: 1.0.0
-  description: Local coverage is limited to published FNS releases. DaData is disabled.
+  description: Local coverage is limited to published FNS releases. DaData is disabled by default.
 servers:
   - url: /
     description: API server
@@ -11,7 +11,7 @@ paths:
   /v1/companies:
     get:
       operationId: searchCompanies
-      summary: Search published FNS observations. Exact names rank before trigram matches.
+      summary: Search published FNS observations and optional DaData registrations.
       parameters:
         - name: q
           in: query
@@ -28,6 +28,7 @@ paths:
         - name: limit
           in: query
           required: false
+          description: Local page size. Exact searches can also return DaData registrations on the first page.
           schema: {type: integer, minimum: 1, maximum: 100, default: 20}
         - name: cursor
           in: query
@@ -35,7 +36,7 @@ paths:
           schema: {type: string, maxLength: 4096}
       responses:
         '200':
-          description: Search published FNS observations. Exact names rank before trigram matches.
+          description: Exact names rank before trigram matches in the local results.
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Search'}
@@ -55,7 +56,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
         '503':
-          description: Local data temporarily unavailable.
+          description: Local data unavailable, or exact lookup needs DaData and the provider is unavailable.
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
@@ -81,7 +82,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
         '404':
-          description: No matching subject in published local data.
+          description: No matching subject in the checked sources.
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
@@ -96,7 +97,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
         '503':
-          description: Local data temporarily unavailable.
+          description: Local data unavailable, or the subject could not be resolved because DaData is unavailable.
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
@@ -142,6 +143,53 @@ paths:
               schema: {$ref: '#/components/schemas/Error'}
         '503':
           description: Local data temporarily unavailable.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /v1/companies/{id}/taxes:
+    get:
+      operationId: getCompanyTaxes
+      summary: Get published special tax regimes.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string, pattern: '^(reg:([0-9]{13}|[0-9]{15})|inn:([0-9]{10}|[0-9]{12}))$'}
+        - name: section
+          in: query
+          schema: {type: string, enum: [regimes], default: regimes}
+        - name: as_of
+          in: query
+          description: Exact observation date. Defaults to the latest loaded snapshot for the subject type.
+          schema: {type: string, format: date}
+      responses:
+        '200':
+          description: The selected snapshot and its observations.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TaxRegimes'}
+        '400':
+          description: Invalid ID, date or section.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '404':
+          description: No matching company in the checked sources.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '409':
+          description: The INN matches multiple registrations. Select a candidate ID.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '429':
+          description: The local request concurrency limit was reached.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '503':
+          description: Local data unavailable, or DaData was unavailable while resolving an unknown ID.
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
@@ -200,6 +248,15 @@ components:
             message: {type: string}
             request_id: {type: string}
             candidates: {type: array, items: {type: string}}
+        warnings:
+          type: array
+          items: {$ref: '#/components/schemas/Warning'}
+    Warning:
+      type: object
+      required: [source, code]
+      properties:
+        source: {type: string}
+        code: {type: string}
     Evidence:
       type: object
       required: [source_ref, as_of, document_id, file]
@@ -262,23 +319,45 @@ components:
               period: {type: string}
               url: {type: string, format: uri}
               download_url: {type: string, format: uri}
+              quarantined_count:
+                type: integer
+                minimum: 1
+                description: Number of regime records withheld from this release because identifiers conflict with the SME registry. Omitted when zero.
         coverage:
           type: object
           required: [local, dadata]
           properties:
             local: {type: string, enum: [partial, not_loaded]}
-            dadata: {const: disabled}
+            dadata:
+              type: string
+              enum: [disabled, not_requested, checked, limited, unavailable]
+              description: Name suggestions are ranked and bounded. Exact lookup is limited if the provider reaches its result cap.
         warnings:
           type: array
-          items:
-            type: object
-            required: [source, code]
-            properties:
-              source: {type: string}
-              code: {type: string}
+          items: {$ref: '#/components/schemas/Warning'}
+        dadata: {$ref: '#/components/schemas/DaDataRegistration'}
+    DaDataRegistration:
+      type: object
+      required: [id, inn, registration_number, kind, source, source_url, as_of, retrieved_at]
+      properties:
+        id: {type: string}
+        inn: {type: string}
+        registration_number: {type: string}
+        kind: {type: string, enum: [legal, entrepreneur]}
+        name: {type: string}
+        kpp: {type: string}
+        okved: {type: string}
+        status: {type: string}
+        registered_on: {type: string, format: date}
+        last_changed_on: {type: string, format: date}
+        address: {type: string, description: Standardized address of a legal entity.}
+        source: {const: dadata}
+        source_url: {type: string, format: uri}
+        as_of: {type: 'null', description: DaData does not provide a snapshot date for this observation.}
+        retrieved_at: {type: string, format: date-time}
     Availability:
       type: string
-      enum: [found, not_published, not_applicable, not_loaded]
+      enum: [found, not_published, not_applicable, not_loaded, unavailable, identity_conflict]
     Section:
       type: object
       required: [state]
@@ -293,15 +372,37 @@ components:
           properties:
             items:
               type: array
-              items: {$ref: '#/components/schemas/Identity'}
+              items:
+                allOf:
+                  - $ref: '#/components/schemas/Identity'
+                  - type: object
+                    properties:
+                      dadata: {$ref: '#/components/schemas/DaDataRegistration'}
+            external_suggestions:
+              type: array
+              maxItems: 20
+              description: DaData suggestions on the first page of a name search.
+              items: {$ref: '#/components/schemas/DaDataRegistration'}
             next_cursor: {type: [string, 'null']}
     Profile:
       allOf:
         - $ref: '#/components/schemas/Response'
         - type: object
-          required: [id, company, sections]
+          required: [id, company, sections, headcounts]
           properties:
             id: {type: string}
+            headcounts:
+              type: array
+              description: Independent observations from SME and the dedicated headcount dataset. Both can report the same year.
+              items:
+                allOf:
+                  - $ref: '#/components/schemas/Evidence'
+                  - type: object
+                    required: [employees, year, scope]
+                    properties:
+                      employees: {type: integer, minimum: 0}
+                      year: {type: integer}
+                      scope: {type: string, enum: [registration, taxpayer]}
             company:
               allOf:
                 - $ref: '#/components/schemas/Identity'
@@ -314,11 +415,12 @@ components:
                         - type: 'null'
             sections:
               type: object
-              required: [registration, sme, financials, taxes]
+              required: [registration, sme, financials, headcount, taxes]
               properties:
                 registration: {$ref: '#/components/schemas/Section'}
                 sme: {$ref: '#/components/schemas/Section'}
                 financials: {$ref: '#/components/schemas/Section'}
+                headcount: {$ref: '#/components/schemas/Section'}
                 taxes: {$ref: '#/components/schemas/Section'}
     Financials:
       allOf:
@@ -343,6 +445,32 @@ components:
                       expense: {type: string}
                       currency: {const: RUB}
                       scope: {const: taxpayer}
+    TaxRegimes:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          required: [id, state, as_of, items]
+          properties:
+            id: {type: string}
+            state:
+              type: string
+              enum: [found, not_published, not_loaded, identity_conflict]
+              description: With identity_conflict, the source record is withheld and items is empty.
+            as_of: {type: [string, 'null'], format: date}
+            items:
+              type: array
+              maxItems: 1
+              items:
+                allOf:
+                  - $ref: '#/components/schemas/Evidence'
+                  - type: object
+                    required: [scope, codes]
+                    properties:
+                      scope: {type: string, enum: [taxpayer, registration]}
+                      codes:
+                        type: array
+                        description: An empty list means the document exists with no affirmative flags. A missing document yields no item.
+                        items: {type: string, enum: [eshn, usn, ausn, srp, psn, npd]}
     Observations:
       allOf:
         - $ref: '#/components/schemas/Response'
@@ -356,7 +484,7 @@ components:
                 type: object
                 required: [section, evidence]
                 properties:
-                  section: {type: string, enum: [sme, financials]}
+                  section: {type: string, enum: [sme, financials, headcount, regimes]}
                   year: {type: integer}
                   evidence: {$ref: '#/components/schemas/Evidence'}
 

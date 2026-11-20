@@ -23,6 +23,7 @@ import (
 
 type snapshot struct {
 	pgx.Tx
+	request context.Context
 	sources map[string]company.Source
 	version string
 }
@@ -34,7 +35,7 @@ type cursor struct {
 	ID      string
 }
 
-func RegisterCompanies(r *gin.Engine, pool *pgxpool.Pool) {
+func RegisterCompanies(r *gin.Engine, pool *pgxpool.Pool, lookup PartyLookup) {
 	group := r.Group("/v1/companies")
 	// Bound concurrent queries even when PostgreSQL or a broad name search is slow.
 	slots := make(chan struct{}, 8)
@@ -51,14 +52,18 @@ func RegisterCompanies(r *gin.Engine, pool *pgxpool.Pool) {
 	})
 	read := func(handler func(*gin.Context, snapshot) error) gin.HandlerFunc {
 		return func(c *gin.Context) {
-			ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+			request := c.Request.Context()
+			ctx, cancel := context.WithTimeout(request, 5*time.Second)
 			defer cancel()
 			c.Request = c.Request.WithContext(ctx)
 			tx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 			if err == nil {
-				defer tx.Rollback(ctx)
-				var s snapshot
-				s.Tx = tx
+				defer func() {
+					cleanup, stop := context.WithTimeout(context.WithoutCancel(request), time.Second)
+					defer stop()
+					_ = tx.Rollback(cleanup)
+				}()
+				s := snapshot{Tx: tx, request: request}
 				s.sources, s.version, err = company.Sources(ctx, tx)
 				if err == nil {
 					err = handler(c, s)
@@ -70,10 +75,12 @@ func RegisterCompanies(r *gin.Engine, pool *pgxpool.Pool) {
 			}
 		}
 	}
-	group.GET("", read(search))
-	group.GET("/:id", read(detail))
-	group.GET("/:id/financials", read(detail))
-	group.GET("/:id/sources", read(detail))
+	group.GET("", read(func(c *gin.Context, s snapshot) error { return search(c, s, lookup) }))
+	get := read(func(c *gin.Context, s snapshot) error { return detail(c, s, lookup) })
+	group.GET("/:id", get)
+	group.GET("/:id/financials", get)
+	group.GET("/:id/taxes", get)
+	group.GET("/:id/sources", get)
 }
 
 func requestID(c *gin.Context) string {
@@ -90,7 +97,7 @@ func fail(c *gin.Context, status int, code, message string) {
 	c.AbortWithStatusJSON(status, gin.H{"error": gin.H{"code": code, "message": message, "request_id": requestID(c)}})
 }
 
-func search(c *gin.Context, s snapshot) error {
+func search(c *gin.Context, s snapshot, lookup PartyLookup) error {
 	query := strings.TrimSpace(c.Query("q"))
 	mode, kind := c.DefaultQuery("mode", "auto"), c.Query("kind")
 	if mode == "auto" {
@@ -144,8 +151,41 @@ func search(c *gin.Context, s snapshot) error {
 		encoded := base64.RawURLEncoding.EncodeToString(data)
 		next = &encoded
 	}
-	c.JSON(200, gin.H{"items": items, "next_cursor": next, "sources": s.sources,
-		"coverage": coverage(s), "warnings": []any{}})
+	p, err := providerSearch(s, lookup, mode, query, kind, page.ID == "")
+	if err != nil {
+		return err
+	}
+	type searchItem struct {
+		company.Match
+		DaData *registrationObservation `json:"dadata,omitempty"`
+	}
+	output := make([]searchItem, 0, len(items))
+	index := make(map[string]int, len(items))
+	for _, item := range items {
+		index[item.ID] = len(output)
+		output = append(output, searchItem{Match: item})
+	}
+	for _, o := range p.observations {
+		if i, ok := index[o.ID]; ok {
+			p.compare(o, output[i].Identity, nil)
+			if mode != "name" {
+				output[i].DaData = &o
+			}
+		} else if mode != "name" && !p.published[o.Registration] {
+			output = append(output, searchItem{Match: company.Match{Identity: o.identity()}, DaData: &o})
+		}
+	}
+	body := gin.H{"items": output, "next_cursor": next, "sources": s.sources,
+		"coverage": coverage(s), "warnings": []gin.H{}}
+	if mode == "name" && (p.state == "checked" || p.state == "limited") {
+		body["external_suggestions"] = append([]registrationObservation{}, p.observations...)
+	}
+	p.apply(body)
+	if len(output) == 0 && mode != "name" && p.state == "unavailable" {
+		failProvider(c, p)
+		return nil
+	}
+	c.JSON(200, body)
 	return nil
 }
 
@@ -157,7 +197,7 @@ func coverage(s snapshot) gin.H {
 	return gin.H{"local": local, "dadata": "disabled"}
 }
 
-func detail(c *gin.Context, s snapshot) error {
+func detail(c *gin.Context, s snapshot, lookup PartyLookup) error {
 	id := c.Param("id")
 	if !validID(id) {
 		fail(c, 400, "invalid_id", "Use reg:<registration number> or inn:<INN>")
@@ -165,7 +205,23 @@ func detail(c *gin.Context, s snapshot) error {
 	}
 	var year int
 	route := c.FullPath()
-	if raw, present := c.GetQuery("year"); present && strings.HasSuffix(route, "/financials") {
+	isTaxes := strings.HasSuffix(route, "/taxes")
+	isFinancials := strings.HasSuffix(route, "/financials")
+	asOf := ""
+	if isTaxes {
+		if section := c.DefaultQuery("section", "regimes"); section != "regimes" {
+			fail(c, 400, "invalid_query", "Invalid tax section")
+			return nil
+		}
+		if raw, present := c.GetQuery("as_of"); present {
+			if _, err := time.Parse(time.DateOnly, raw); err != nil {
+				fail(c, 400, "invalid_query", "Invalid observation date")
+				return nil
+			}
+			asOf = raw
+		}
+	}
+	if raw, present := c.GetQuery("year"); present && isFinancials {
 		var err error
 		year, err = strconv.Atoi(raw)
 		if err != nil || len(raw) != 4 || !digits(raw) || year < 1900 {
@@ -180,9 +236,41 @@ func detail(c *gin.Context, s snapshot) error {
 	if err != nil {
 		return err
 	}
+	providerMode := "inn"
+	if mode == "reg" {
+		providerMode = "registration"
+	}
+	// The local-only routes need DaData just to resolve an otherwise unknown ID.
+	useProvider := route == "/v1/companies/:id" || strings.HasSuffix(route, "/sources") || len(candidates) == 0
+	p, err := providerSearch(s, lookup, providerMode, number, "", useProvider && len(candidates) < 2)
+	if err != nil {
+		return err
+	}
+	local := make(map[string]bool, len(candidates))
+	for _, candidate := range candidates {
+		local[candidate.ID] = true
+	}
+	for _, o := range p.observations {
+		if !local[o.ID] {
+			if len(candidates) == 1 && candidates[0].Registration == nil {
+				// The local row describes the taxpayer, not a second registration.
+				candidates = candidates[:0]
+			}
+			candidates = append(candidates, company.Detail{Identity: o.identity()})
+		}
+	}
 	switch len(candidates) {
 	case 0:
-		fail(c, 404, "company_not_found", "No matching company in the published local data")
+		if p.state == "unavailable" {
+			failProvider(c, p)
+		} else if len(p.warnings) > 0 {
+			c.AbortWithStatusJSON(404, gin.H{
+				"error":    gin.H{"code": "company_not_found", "message": "No matching company in the checked sources", "request_id": requestID(c)},
+				"warnings": p.warnings,
+			})
+		} else {
+			fail(c, 404, "company_not_found", "No matching company in the checked sources")
+		}
 		return nil
 	case 1:
 	default:
@@ -190,14 +278,25 @@ func detail(c *gin.Context, s snapshot) error {
 		for _, item := range candidates {
 			keys = append(keys, item.ID)
 		}
-		c.JSON(409, gin.H{"error": gin.H{"code": "ambiguous_identity", "message": "Select a registration",
-			"request_id": requestID(c), "candidates": keys}})
+		body := gin.H{"error": gin.H{"code": "ambiguous_identity", "message": "Select a registration",
+			"request_id": requestID(c), "candidates": keys}}
+		if len(p.warnings) > 0 {
+			body["warnings"] = p.warnings
+		}
+		c.JSON(409, body)
 		return nil
 	}
 
 	item := candidates[0]
+	regimes := company.TaxRegimes{}
+	if !isFinancials {
+		regimes, err = company.Regimes(ctx, s.Tx, item, asOf)
+		if err != nil {
+			return err
+		}
+	}
 	financials := []company.Financial{}
-	if item.Kind == "legal" {
+	if item.Kind == "legal" && !isTaxes {
 		financials, err = company.Financials(ctx, s.Tx, item.INN)
 		if err != nil {
 			return err
@@ -207,14 +306,46 @@ func detail(c *gin.Context, s snapshot) error {
 			item.Name = &company.Name{Value: latest.DisplayName, Evidence: latest.Evidence}
 		}
 	}
-	warnings := make([]gin.H, 0)
-	if item.Registration != nil && len(financials) > 0 {
-		registrations, err := company.Resolve(ctx, s.Tx, "inn", item.INN)
+	headcounts := []company.Headcount{}
+	if !isFinancials && !isTaxes {
+		headcounts, err = company.Headcounts(ctx, s.Tx, item)
 		if err != nil {
 			return err
 		}
-		if len(registrations) > 1 {
-			warnings = append(warnings, gin.H{"source": "revexp", "code": "ambiguous_taxpayer_registration"})
+	}
+	headcountState := availability(s, "sshr2019", 0, len(headcounts) > 0)
+	if item.Kind == "entrepreneur" {
+		// The dedicated headcount release only covers legal entities.
+		headcountState = "not_applicable"
+		if len(headcounts) > 0 {
+			headcountState = "found"
+		}
+	}
+	warnings := make([]gin.H, 0)
+	if item.Registration != nil && item.Kind == "legal" {
+		taxpayerDatasets := make([]string, 0, 3)
+		if len(financials) > 0 {
+			taxpayerDatasets = append(taxpayerDatasets, "revexp")
+		}
+		for _, h := range headcounts {
+			if h.Scope == "taxpayer" {
+				taxpayerDatasets = append(taxpayerDatasets, "sshr2019")
+				break
+			}
+		}
+		if len(regimes.Items) > 0 {
+			taxpayerDatasets = append(taxpayerDatasets, "snr")
+		}
+		if len(taxpayerDatasets) > 0 {
+			registrations, err := company.Resolve(ctx, s.Tx, "inn", item.INN)
+			if err != nil {
+				return err
+			}
+			if len(registrations) > 1 || (len(registrations) == 1 && registrations[0].Registration != nil && registrations[0].ID != item.ID) {
+				for _, dataset := range taxpayerDatasets {
+					warnings = append(warnings, gin.H{"source": dataset, "code": "ambiguous_taxpayer_registration"})
+				}
+			}
 		}
 	}
 
@@ -233,9 +364,27 @@ func detail(c *gin.Context, s snapshot) error {
 	smeState := availability(s, "rsmp", 0, item.SME != nil)
 
 	body := gin.H{"id": item.ID, "sources": s.sources, "coverage": coverage(s), "warnings": warnings}
+	registrationState := "not_loaded"
+	for _, o := range p.observations {
+		if o.ID == item.ID {
+			p.compare(o, item.Identity, item.SME)
+			body["dadata"] = o
+			registrationState = "found"
+			break
+		}
+	}
+	if p.state == "unavailable" {
+		registrationState = "unavailable"
+	}
+	if p.state == "checked" && registrationState == "not_loaded" {
+		registrationState = "not_published"
+	}
+	p.apply(body)
 	switch {
-	case strings.HasSuffix(route, "/financials"):
+	case isFinancials:
 		body["items"], body["years"], body["state"] = filtered, years, financeState
+	case isTaxes:
+		body["items"], body["as_of"], body["state"] = regimes.Items, regimes.AsOf, regimes.State
 	case strings.HasSuffix(route, "/sources"):
 		observations := make([]gin.H, 0)
 		if item.SME != nil {
@@ -244,14 +393,22 @@ func detail(c *gin.Context, s snapshot) error {
 		for _, f := range financials {
 			observations = append(observations, gin.H{"section": "financials", "year": f.Year, "evidence": f.Evidence})
 		}
+		for _, h := range headcounts {
+			observations = append(observations, gin.H{"section": "headcount", "year": h.Year, "evidence": h.Evidence})
+		}
+		for _, r := range regimes.Items {
+			observations = append(observations, gin.H{"section": "regimes", "evidence": r.Evidence})
+		}
 		body["observations"] = observations
 	default:
 		body["company"] = item
+		body["headcounts"] = headcounts
 		body["sections"] = gin.H{
-			"registration": gin.H{"state": "not_loaded"},
+			"registration": gin.H{"state": registrationState},
 			"sme":          gin.H{"state": smeState},
 			"financials":   gin.H{"state": financeState, "years": years},
-			"taxes":        gin.H{"state": "not_loaded"},
+			"headcount":    gin.H{"state": headcountState},
+			"taxes":        gin.H{"state": regimes.State},
 		}
 	}
 	c.JSON(200, body)

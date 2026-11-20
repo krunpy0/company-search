@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/krunpy0/company-search/backend/internal/dadata"
 )
 
 func TestPublishedCompanyAPI(t *testing.T) {
@@ -24,7 +25,7 @@ func TestPublishedCompanyAPI(t *testing.T) {
 	}
 	defer pool.Close()
 	router := gin.New()
-	RegisterCompanies(router, pool)
+	RegisterCompanies(router, pool, nil)
 
 	get := func(path string, want int) map[string]any {
 		t.Helper()
@@ -168,4 +169,73 @@ func TestPublishedCompanyAPI(t *testing.T) {
 		t.Fatal("expected an empty result")
 	}
 	get("/v1/companies/inn:"+absent, 404)
+
+	main := dadata.Party{INN: inn, OGRN: reg, BranchType: "MAIN", Type: "LEGAL", DisplayName: "DaData fixture"}
+	branch := main
+	branch.BranchType = "BRANCH"
+	otherINN := main
+	otherINN.INN = "7707083893"
+	const externalINN = "000000000000"
+	ip := dadata.Party{INN: externalINN, OGRN: "326000000000015", Type: "INDIVIDUAL", DisplayName: "ИП Тест"}
+	ip2 := ip
+	ip2.OGRN = "326000000000026"
+	var warning string
+	router = gin.New()
+	RegisterCompanies(router, pool, func(_ context.Context, query, mode, _ string) ([]dadata.Party, bool, string) {
+		switch {
+		case warning != "":
+			return nil, false, warning
+		case query == externalINN:
+			return []dadata.Party{ip, ip2}, false, ""
+		case query == ip.OGRN:
+			return []dadata.Party{ip, ip2}, false, ""
+		case mode == "name" || query == inn:
+			return []dadata.Party{branch, main, main}, false, ""
+		case query == reg:
+			return []dadata.Party{otherINN}, false, ""
+		default:
+			return []dadata.Party{}, false, ""
+		}
+	})
+	merged := get("/v1/companies?q="+inn, 200)
+	mergedItems := merged["items"].([]any)
+	firstMatch := mergedItems[0].(map[string]any)
+	if len(mergedItems) != 1 || firstMatch["name"].(map[string]any)["value"] != name ||
+		firstMatch["dadata"].(map[string]any)["name"] != main.DisplayName ||
+		merged["warnings"].([]any)[0].(map[string]any)["code"] != "provider_name_differs" {
+		t.Fatal("expected a single matching registration with both observations")
+	}
+	nameSearch := get("/v1/companies?q=fixture-search", 200)
+	suggestions, _ := nameSearch["external_suggestions"].([]any)
+	if len(suggestions) != 1 ||
+		nameSearch["coverage"].(map[string]any)["dadata"] != "limited" {
+		t.Fatalf("expected one separate suggestion and limited coverage: %+v", nameSearch)
+	}
+	rejected := get(base, 200)
+	if rejected["dadata"] != nil || rejected["warnings"].([]any)[0].(map[string]any)["code"] != "provider_identity_conflict" {
+		t.Fatal("conflicting provider identity must not be attached to the local profile")
+	}
+	if len(get("/v1/companies?q="+externalINN, 200)["items"].([]any)) != 2 {
+		t.Fatal("expected two external registrations for the same INN")
+	}
+	get("/v1/companies/inn:"+externalINN, 409)
+	external := get("/v1/companies/reg:"+ip.OGRN, 200)
+	if external["dadata"].(map[string]any)["id"] != "reg:"+ip.OGRN {
+		t.Fatal("expected an exact external registration in the profile")
+	}
+	if len(get("/v1/companies?q="+absent, 200)["items"].([]any)) != 0 {
+		t.Fatal("expected an empty result after both sources responded")
+	}
+	warning = "provider_timeout"
+	degraded := get(base, 200)
+	if degraded["company"].(map[string]any)["inn"] != inn ||
+		degraded["coverage"].(map[string]any)["dadata"] != "unavailable" ||
+		degraded["warnings"].([]any)[0].(map[string]any)["code"] != warning {
+		t.Fatal("provider failure must preserve the local profile and explain degraded coverage")
+	}
+	get("/v1/companies/inn:"+absent, 503)
+	var foundCount int
+	if err := pool.QueryRow(context.Background(), "SELECT count(*) FROM registrations WHERE inn = $1", externalINN).Scan(&foundCount); err != nil || foundCount != 0 {
+		t.Fatalf("external registrations must stay out of PostgreSQL: count=%d, err=%v", foundCount, err)
+	}
 }
