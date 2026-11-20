@@ -79,6 +79,7 @@ func RegisterCompanies(r *gin.Engine, pool *pgxpool.Pool, lookup PartyLookup) {
 	get := read(func(c *gin.Context, s snapshot) error { return detail(c, s, lookup) })
 	group.GET("/:id", get)
 	group.GET("/:id/financials", get)
+	group.GET("/:id/taxes", get)
 	group.GET("/:id/sources", get)
 }
 
@@ -204,7 +205,23 @@ func detail(c *gin.Context, s snapshot, lookup PartyLookup) error {
 	}
 	var year int
 	route := c.FullPath()
-	if raw, present := c.GetQuery("year"); present && strings.HasSuffix(route, "/financials") {
+	isTaxes := strings.HasSuffix(route, "/taxes")
+	isFinancials := strings.HasSuffix(route, "/financials")
+	asOf := ""
+	if isTaxes {
+		if section := c.DefaultQuery("section", "regimes"); section != "regimes" {
+			fail(c, 400, "invalid_query", "Invalid tax section")
+			return nil
+		}
+		if raw, present := c.GetQuery("as_of"); present {
+			if _, err := time.Parse(time.DateOnly, raw); err != nil {
+				fail(c, 400, "invalid_query", "Invalid observation date")
+				return nil
+			}
+			asOf = raw
+		}
+	}
+	if raw, present := c.GetQuery("year"); present && isFinancials {
 		var err error
 		year, err = strconv.Atoi(raw)
 		if err != nil || len(raw) != 4 || !digits(raw) || year < 1900 {
@@ -271,8 +288,15 @@ func detail(c *gin.Context, s snapshot, lookup PartyLookup) error {
 	}
 
 	item := candidates[0]
+	regimes := company.TaxRegimes{}
+	if !isFinancials {
+		regimes, err = company.Regimes(ctx, s.Tx, item, asOf)
+		if err != nil {
+			return err
+		}
+	}
 	financials := []company.Financial{}
-	if item.Kind == "legal" {
+	if item.Kind == "legal" && !isTaxes {
 		financials, err = company.Financials(ctx, s.Tx, item.INN)
 		if err != nil {
 			return err
@@ -282,14 +306,46 @@ func detail(c *gin.Context, s snapshot, lookup PartyLookup) error {
 			item.Name = &company.Name{Value: latest.DisplayName, Evidence: latest.Evidence}
 		}
 	}
-	warnings := make([]gin.H, 0)
-	if item.Registration != nil && len(financials) > 0 {
-		registrations, err := company.Resolve(ctx, s.Tx, "inn", item.INN)
+	headcounts := []company.Headcount{}
+	if !isFinancials && !isTaxes {
+		headcounts, err = company.Headcounts(ctx, s.Tx, item)
 		if err != nil {
 			return err
 		}
-		if len(registrations) > 1 || (len(registrations) == 1 && registrations[0].Registration != nil && registrations[0].ID != item.ID) {
-			warnings = append(warnings, gin.H{"source": "revexp", "code": "ambiguous_taxpayer_registration"})
+	}
+	headcountState := availability(s, "sshr2019", 0, len(headcounts) > 0)
+	if item.Kind == "entrepreneur" {
+		// The dedicated headcount release only covers legal entities.
+		headcountState = "not_applicable"
+		if len(headcounts) > 0 {
+			headcountState = "found"
+		}
+	}
+	warnings := make([]gin.H, 0)
+	if item.Registration != nil && item.Kind == "legal" {
+		taxpayerDatasets := make([]string, 0, 3)
+		if len(financials) > 0 {
+			taxpayerDatasets = append(taxpayerDatasets, "revexp")
+		}
+		for _, h := range headcounts {
+			if h.Scope == "taxpayer" {
+				taxpayerDatasets = append(taxpayerDatasets, "sshr2019")
+				break
+			}
+		}
+		if len(regimes.Items) > 0 {
+			taxpayerDatasets = append(taxpayerDatasets, "snr")
+		}
+		if len(taxpayerDatasets) > 0 {
+			registrations, err := company.Resolve(ctx, s.Tx, "inn", item.INN)
+			if err != nil {
+				return err
+			}
+			if len(registrations) > 1 || (len(registrations) == 1 && registrations[0].Registration != nil && registrations[0].ID != item.ID) {
+				for _, dataset := range taxpayerDatasets {
+					warnings = append(warnings, gin.H{"source": dataset, "code": "ambiguous_taxpayer_registration"})
+				}
+			}
 		}
 	}
 
@@ -325,8 +381,10 @@ func detail(c *gin.Context, s snapshot, lookup PartyLookup) error {
 	}
 	p.apply(body)
 	switch {
-	case strings.HasSuffix(route, "/financials"):
+	case isFinancials:
 		body["items"], body["years"], body["state"] = filtered, years, financeState
+	case isTaxes:
+		body["items"], body["as_of"], body["state"] = regimes.Items, regimes.AsOf, regimes.State
 	case strings.HasSuffix(route, "/sources"):
 		observations := make([]gin.H, 0)
 		if item.SME != nil {
@@ -335,14 +393,22 @@ func detail(c *gin.Context, s snapshot, lookup PartyLookup) error {
 		for _, f := range financials {
 			observations = append(observations, gin.H{"section": "financials", "year": f.Year, "evidence": f.Evidence})
 		}
+		for _, h := range headcounts {
+			observations = append(observations, gin.H{"section": "headcount", "year": h.Year, "evidence": h.Evidence})
+		}
+		for _, r := range regimes.Items {
+			observations = append(observations, gin.H{"section": "regimes", "evidence": r.Evidence})
+		}
 		body["observations"] = observations
 	default:
 		body["company"] = item
+		body["headcounts"] = headcounts
 		body["sections"] = gin.H{
 			"registration": gin.H{"state": registrationState},
 			"sme":          gin.H{"state": smeState},
 			"financials":   gin.H{"state": financeState, "years": years},
-			"taxes":        gin.H{"state": "not_loaded"},
+			"headcount":    gin.H{"state": headcountState},
+			"taxes":        gin.H{"state": regimes.State},
 		}
 	}
 	c.JSON(200, body)

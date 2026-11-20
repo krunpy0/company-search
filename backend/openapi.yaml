@@ -146,6 +146,53 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
+  /v1/companies/{id}/taxes:
+    get:
+      operationId: getCompanyTaxes
+      summary: Get published special tax regimes.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string, pattern: '^(reg:([0-9]{13}|[0-9]{15})|inn:([0-9]{10}|[0-9]{12}))$'}
+        - name: section
+          in: query
+          schema: {type: string, enum: [regimes], default: regimes}
+        - name: as_of
+          in: query
+          description: Exact observation date. Defaults to the latest loaded snapshot for the subject type.
+          schema: {type: string, format: date}
+      responses:
+        '200':
+          description: The selected snapshot and its observations.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TaxRegimes'}
+        '400':
+          description: Invalid ID, date or section.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '404':
+          description: No matching company in the checked sources.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '409':
+          description: The INN matches multiple registrations. Select a candidate ID.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '429':
+          description: The local request concurrency limit was reached.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '503':
+          description: Local data unavailable, or DaData was unavailable while resolving an unknown ID.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
   /v1/companies/{id}/sources:
     get:
       operationId: getCompanySources
@@ -272,6 +319,10 @@ components:
               period: {type: string}
               url: {type: string, format: uri}
               download_url: {type: string, format: uri}
+              quarantined_count:
+                type: integer
+                minimum: 1
+                description: Number of regime records withheld from this release because identifiers conflict with the SME registry. Omitted when zero.
         coverage:
           type: object
           required: [local, dadata]
@@ -306,7 +357,7 @@ components:
         retrieved_at: {type: string, format: date-time}
     Availability:
       type: string
-      enum: [found, not_published, not_applicable, not_loaded, unavailable]
+      enum: [found, not_published, not_applicable, not_loaded, unavailable, identity_conflict]
     Section:
       type: object
       required: [state]
@@ -337,9 +388,21 @@ components:
       allOf:
         - $ref: '#/components/schemas/Response'
         - type: object
-          required: [id, company, sections]
+          required: [id, company, sections, headcounts]
           properties:
             id: {type: string}
+            headcounts:
+              type: array
+              description: Independent observations from SME and the dedicated headcount dataset. Both can report the same year.
+              items:
+                allOf:
+                  - $ref: '#/components/schemas/Evidence'
+                  - type: object
+                    required: [employees, year, scope]
+                    properties:
+                      employees: {type: integer, minimum: 0}
+                      year: {type: integer}
+                      scope: {type: string, enum: [registration, taxpayer]}
             company:
               allOf:
                 - $ref: '#/components/schemas/Identity'
@@ -352,11 +415,12 @@ components:
                         - type: 'null'
             sections:
               type: object
-              required: [registration, sme, financials, taxes]
+              required: [registration, sme, financials, headcount, taxes]
               properties:
                 registration: {$ref: '#/components/schemas/Section'}
                 sme: {$ref: '#/components/schemas/Section'}
                 financials: {$ref: '#/components/schemas/Section'}
+                headcount: {$ref: '#/components/schemas/Section'}
                 taxes: {$ref: '#/components/schemas/Section'}
     Financials:
       allOf:
@@ -381,6 +445,32 @@ components:
                       expense: {type: string}
                       currency: {const: RUB}
                       scope: {const: taxpayer}
+    TaxRegimes:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          required: [id, state, as_of, items]
+          properties:
+            id: {type: string}
+            state:
+              type: string
+              enum: [found, not_published, not_loaded, identity_conflict]
+              description: With identity_conflict, the source record is withheld and items is empty.
+            as_of: {type: [string, 'null'], format: date}
+            items:
+              type: array
+              maxItems: 1
+              items:
+                allOf:
+                  - $ref: '#/components/schemas/Evidence'
+                  - type: object
+                    required: [scope, codes]
+                    properties:
+                      scope: {type: string, enum: [taxpayer, registration]}
+                      codes:
+                        type: array
+                        description: An empty list means the document exists with no affirmative flags. A missing document yields no item.
+                        items: {type: string, enum: [eshn, usn, ausn, srp, psn, npd]}
     Observations:
       allOf:
         - $ref: '#/components/schemas/Response'
@@ -394,7 +484,7 @@ components:
                 type: object
                 required: [section, evidence]
                 properties:
-                  section: {type: string, enum: [sme, financials]}
+                  section: {type: string, enum: [sme, financials, headcount, regimes]}
                   year: {type: integer}
                   evidence: {$ref: '#/components/schemas/Evidence'}
 

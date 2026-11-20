@@ -24,13 +24,23 @@ const revexp = "revexp"
 const passport = "https://www.nalog.gov.ru/rn27/opendata/7707329152-revexp/"
 const baseURL = "https://file.nalog.ru/opendata/7707329152-revexp/"
 
+var employmentTaxDatasets = map[string]struct {
+	schemaDate, version string
+	lockID              int64
+}{
+	"sshr2019": {"20200408", fns.HeadcountVersion, 71004},
+	"snr":      {"20230425", fns.LegalRegimeVersion, 71005},
+	"snrip":    {"20241025", fns.EntrepreneurRegimeVersion, 71006},
+}
+
 func main() {
-	dataset := flag.String("dataset", revexp, "FNS dataset (revexp or rsmp)")
+	dataset := flag.String("dataset", revexp, "FNS dataset (revexp, rsmp, sshr2019, snr, snrip)")
 	date := flag.String("published-on", "", "FNS release date (YYYY-MM-DD)")
 	archive := flag.String("archive", "", "optional local copy of the official ZIP")
 	flag.Parse()
 	published, err := time.Parse(time.DateOnly, *date)
-	if err != nil || published.Year() < 2019 || flag.NArg() != 0 || (*dataset != revexp && *dataset != "rsmp") {
+	_, employmentTax := employmentTaxDatasets[*dataset]
+	if err != nil || published.Year() < 2019 || flag.NArg() != 0 || (*dataset != revexp && *dataset != "rsmp" && !employmentTax) {
 		flag.Usage()
 		os.Exit(2)
 	}
@@ -49,12 +59,20 @@ func run(ctx context.Context, dataset string, published time.Time, archive strin
 	timeout := 3 * time.Minute
 	passportURL, schemaURL, version := passport, baseURL+"structure-20180110.xsd", fns.RevexpVersion
 	url := baseURL + "data-" + published.Format("20060102") + "-structure-20180110.zip"
+	employmentTaxSpec, employmentTax := employmentTaxDatasets[dataset]
 	if dataset == "rsmp" {
 		const rsmpBase = "https://file.nalog.ru/opendata/7707329152-rsmp/"
 		period, lockID, maxZIP, timeout = "current", 71003, fns.MaxRSMPZIP, 30*time.Minute
 		passportURL = "https://www.nalog.gov.ru/opendata/7707329152-rsmp/"
 		schemaURL, version = rsmpBase+"structure-12052026.xsd", fns.RSMPVersion
 		url = rsmpBase + "data-" + published.Format("02012006") + "-structure-12052026.zip"
+	}
+	if employmentTax {
+		base := "https://file.nalog.ru/opendata/7707329152-" + dataset + "/"
+		period, lockID, maxZIP, timeout = "pending", employmentTaxSpec.lockID, 512<<20, 10*time.Minute
+		passportURL = "https://www.nalog.gov.ru/opendata/7707329152-" + dataset + "/"
+		schemaURL, version = base+"structure-"+employmentTaxSpec.schemaDate+".xsd", employmentTaxSpec.version
+		url = base + "data-" + published.Format("20060102") + "-structure-" + employmentTaxSpec.schemaDate + ".zip"
 	}
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
@@ -136,8 +154,8 @@ func run(ctx context.Context, dataset string, published time.Time, archive strin
 	digest := hex.EncodeToString(hash.Sum(nil))
 	var releaseID int64
 	err = conn.QueryRow(ctx, `SELECT id FROM releases
-		WHERE dataset_code=$1 AND published_on=$2 AND period_key=$3 AND sha256=$4 AND status='published'`,
-		dataset, published, period, digest).Scan(&releaseID)
+		WHERE dataset_code=$1 AND published_on=$2 AND sha256=$3 AND status='published'`,
+		dataset, published, digest).Scan(&releaseID)
 	if err == nil {
 		_, err := conn.Exec(ctx, `UPDATE import_runs SET status='succeeded', finished_at=now(), release_id=$2 WHERE id=$1`, runID, releaseID)
 		if err == nil {
@@ -170,6 +188,8 @@ func run(ctx context.Context, dataset string, published time.Time, archive strin
 	}
 	if dataset == "rsmp" {
 		rows, err = loadRSMP(ctx, tx, z, published, releaseID, runID)
+	} else if employmentTax {
+		rows, period, err = loadEmploymentTax(ctx, tx, z, dataset, published, releaseID, runID)
 	} else {
 		rows, err = loadRevexp(ctx, tx, z, published, year, releaseID, runID)
 	}
@@ -177,7 +197,7 @@ func run(ctx context.Context, dataset string, published time.Time, archive strin
 		return err
 	}
 	phase = "publish"
-	if _, err := tx.Exec(ctx, `UPDATE releases SET status='published', validated_at=now() WHERE id=$1`, releaseID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE releases SET status='published', validated_at=now(), period_key=$2 WHERE id=$1`, releaseID, period); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO published_releases VALUES ($1,$2,$3)
