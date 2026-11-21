@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"strconv"
+	"strings"
 
 	"github.com/krunpy0/company-search/backend/internal/tools"
 )
@@ -92,7 +93,7 @@ func (p page) collect(value any, path, subject string, records map[string]Observ
 		ref, _ := node["source_ref"].(string)
 		source, _ := p.sources[ref].(map[string]any)
 		asOf, hasDate := node["as_of"]
-		if source["publisher"] == "FNS" && hasDate {
+		if strings.HasPrefix(ref, "fns-") && source != nil && hasDate {
 			key := fmt.Sprintf("%d:%s", p.number, path)
 			records[key] = Observation{subject, p.tool, ref, asOf, source, node}
 			sources[ref] = source

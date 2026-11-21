@@ -1,13 +1,13 @@
 BEGIN;
 
 INSERT INTO datasets VALUES
-    ('rsmp', 'FNS', 'https://example.invalid/sme', 'test'),
-    ('revexp', 'FNS', 'https://example.invalid/financials', 'test'),
-    ('sshr2019', 'FNS', 'https://example.invalid/headcount', 'test'),
-    ('snrip', 'FNS', 'https://example.invalid/ip-regimes', 'test'),
-    ('snr', 'FNS', 'https://example.invalid/regimes', 'test'),
-    ('paytax', 'FNS', 'https://example.invalid/payments', 'test'),
-    ('debtam', 'FNS', 'https://example.invalid/debts', 'test');
+    ('rsmp', 'ФНС России', 'https://example.invalid/sme', 'test'),
+    ('revexp', 'ФНС России', 'https://example.invalid/financials', 'test'),
+    ('sshr2019', 'ФНС России', 'https://example.invalid/headcount', 'test'),
+    ('snrip', 'ФНС России', 'https://example.invalid/ip-regimes', 'test'),
+    ('snr', 'ФНС России', 'https://example.invalid/regimes', 'test'),
+    ('paytax', 'ФНС России', 'https://example.invalid/payments', 'test'),
+    ('debtam', 'ФНС России', 'https://example.invalid/debts', 'test');
 
 INSERT INTO releases (dataset_code, published_on, period_key, download_url, schema_url, schema_version, status)
 VALUES
