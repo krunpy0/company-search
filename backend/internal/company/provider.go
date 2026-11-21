@@ -1,4 +1,4 @@
-package httpapi
+package company
 
 import (
 	"context"
@@ -6,14 +6,18 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
-	"github.com/krunpy0/company-search/backend/internal/company"
 	"github.com/krunpy0/company-search/backend/internal/dadata"
 )
 
 type PartyLookup func(context.Context, string, string, string) ([]dadata.Party, bool, string)
 
+type searchItem struct {
+	Match
+	DaData *registrationObservation `json:"dadata,omitempty"`
+}
+
 type registrationObservation struct {
+	SourceRef     string  `json:"source_ref,omitempty"`
 	ID            string  `json:"id"`
 	INN           string  `json:"inn"`
 	Registration  string  `json:"registration_number"`
@@ -31,14 +35,14 @@ type registrationObservation struct {
 	RetrievedAt   string  `json:"retrieved_at"`
 }
 
-func (o registrationObservation) identity() company.Identity {
-	return company.Identity{ID: o.ID, INN: o.INN, Kind: o.Kind, Registration: &o.Registration}
+func (o registrationObservation) identity() Identity {
+	return Identity{ID: o.ID, INN: o.INN, Kind: o.Kind, Registration: &o.Registration}
 }
 
 type providerResult struct {
 	state        string
 	observations []registrationObservation
-	warnings     []gin.H
+	warnings     []Body
 	published    map[string]bool
 }
 
@@ -48,7 +52,7 @@ func (p *providerResult) warn(code string) {
 			return
 		}
 	}
-	p.warnings = append(p.warnings, gin.H{"source": "dadata", "code": code})
+	p.warnings = append(p.warnings, Body{"source": "dadata", "code": code})
 }
 
 func providerSearch(s snapshot, lookup PartyLookup, mode, query, kind string, firstPage bool) (providerResult, error) {
@@ -166,7 +170,7 @@ func normalizeParty(raw dadata.Party) (registrationObservation, bool) {
 	return o, validQuery("inn", o.INN) && validQuery("registration", o.Registration)
 }
 
-func (p *providerResult) compare(o registrationObservation, identity company.Identity, sme *company.SME) {
+func (p *providerResult) compare(o registrationObservation, identity Identity, sme *SME) {
 	if identity.Name != nil && o.Name != "" && !strings.EqualFold(identity.Name.Value, o.Name) {
 		p.warn("provider_name_differs")
 	}
@@ -175,14 +179,13 @@ func (p *providerResult) compare(o registrationObservation, identity company.Ide
 	}
 }
 
-func (p providerResult) apply(body gin.H) {
-	body["coverage"].(gin.H)["dadata"] = p.state
-	body["warnings"] = append(body["warnings"].([]gin.H), p.warnings...)
+func (p providerResult) apply(body Body) {
+	body["coverage"].(Body)["dadata"] = p.state
+	body["warnings"] = append(body["warnings"].([]Body), p.warnings...)
 }
 
-func failProvider(c *gin.Context, p providerResult) {
-	c.AbortWithStatusJSON(503, gin.H{
-		"error":    gin.H{"code": "provider_unavailable", "message": "DaData temporarily unavailable", "request_id": requestID(c)},
-		"warnings": p.warnings,
-	})
+func (p providerResult) unavailable() Result {
+	result := Rejected(503, "provider_unavailable", "DaData temporarily unavailable")
+	result.Warnings = p.warnings
+	return result
 }

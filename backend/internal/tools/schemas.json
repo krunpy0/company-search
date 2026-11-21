@@ -1,0 +1,138 @@
+{
+  "get_company_financials": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "description": "Key returned by search. An INN with multiple registrations returns 409.",
+        "pattern": "^(reg:([0-9]{13}|[0-9]{15})|inn:([0-9]{10}|[0-9]{12}))$",
+        "type": "string"
+      },
+      "year": {
+        "maximum": 9999,
+        "minimum": 1900,
+        "type": "integer"
+      }
+    },
+    "required": [
+      "id"
+    ],
+    "additionalProperties": false
+  },
+  "get_company_profile": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "description": "Key returned by search. An INN with multiple registrations returns 409.",
+        "pattern": "^(reg:([0-9]{13}|[0-9]{15})|inn:([0-9]{10}|[0-9]{12}))$",
+        "type": "string"
+      }
+    },
+    "required": [
+      "id"
+    ],
+    "additionalProperties": false
+  },
+  "get_company_sources": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "description": "Key returned by search. An INN with multiple registrations returns 409.",
+        "pattern": "^(reg:([0-9]{13}|[0-9]{15})|inn:([0-9]{10}|[0-9]{12}))$",
+        "type": "string"
+      }
+    },
+    "required": [
+      "id"
+    ],
+    "additionalProperties": false
+  },
+  "get_company_taxes": {
+    "type": "object",
+    "properties": {
+      "as_of": {
+        "description": "Exact observation date for debts and regimes. Defaults to the latest loaded snapshot for the subject type.",
+        "format": "date",
+        "type": "string"
+      },
+      "id": {
+        "pattern": "^(reg:([0-9]{13}|[0-9]{15})|inn:([0-9]{10}|[0-9]{12}))$",
+        "type": "string"
+      },
+      "limit": {
+        "default": 100,
+        "description": "Payment or debt page size.",
+        "maximum": 100,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "offset": {
+        "default": 0,
+        "description": "Use next_offset from the previous payment or debt page.",
+        "maximum": 1000000,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "section": {
+        "default": "regimes",
+        "enum": [
+          "payments",
+          "debts",
+          "regimes"
+        ],
+        "type": "string"
+      },
+      "year": {
+        "description": "Exact report year for payments. Defaults to all loaded years.",
+        "maximum": 9999,
+        "minimum": 1900,
+        "type": "integer"
+      }
+    },
+    "required": [
+      "id"
+    ],
+    "additionalProperties": false
+  },
+  "search_companies": {
+    "type": "object",
+    "properties": {
+      "cursor": {
+        "maxLength": 4096,
+        "type": "string"
+      },
+      "kind": {
+        "enum": [
+          "legal",
+          "entrepreneur"
+        ],
+        "type": "string"
+      },
+      "limit": {
+        "default": 20,
+        "description": "Local page size. Exact searches can also return DaData registrations on the first page.",
+        "maximum": 100,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "mode": {
+        "default": "auto",
+        "enum": [
+          "auto",
+          "inn",
+          "registration",
+          "name"
+        ],
+        "type": "string"
+      },
+      "q": {
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      }
+    },
+    "required": [
+      "q"
+    ],
+    "additionalProperties": false
+  }
+}
