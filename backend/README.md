@@ -107,6 +107,36 @@ go test -count=1 ./internal/httpapi -run TestPublishedEmploymentAndRegimes
 
 [Контракт OpenAPI](openapi.yaml)
 
+### Приёмка API
+
+На локальных базах с выпусками этапов 4, 6 и 7 задай `COMPANY_API_TEST_DATABASE_URL`, `COMPANY_API_STAGE6_TEST_DATABASE_URL` и `COMPANY_API_STAGE7_TEST_DATABASE_URL` соответственно. Если выпуски находятся в разных базах, укажи соответствующий DSN для каждого теста. Проверь, что все три теста `TestPublished…` прошли без `SKIP`.
+
+```powershell
+go test -v -count=1 ./...
+go vet ./...
+npx --yes @redocly/cli lint openapi.yaml --extends minimal
+```
+
+Тесты проходят через маршруты Gin. Они ищут юрлицо и ИП по ИНН и выбирают регистрацию из ответа. При неоднозначном ИНН карточка возвращает `409 ambiguous_identity`. Сравнения с опубликованными выпусками проверяют значения, даты и происхождение. Частичная выдача проверяется на карточке с финансами без записи МСП и при тайм-ауте подменной DaData.
+
+Для проверки публичного режима запусти API с `DADATA_ENABLED=false`. Запросы из примеров выше должны возвращать `200` без авторизации и показывать `coverage.dadata: disabled` в поиске. Добавь `limit=101` или некорректный курсор, чтобы проверить `400`.
+
+Для проверки лимита только на изолированном стенде удерживай `ACCESS EXCLUSIVE` на `published_releases` в отдельной транзакции. Отправь девять запросов поиска одновременно. Пока восемь заняты чтением, один должен получить `429 busy` с `Retry-After: 1`. Заверши транзакцию через `ROLLBACK` и проверь, что новый поиск снова возвращает `200`.
+
+### Проверка ролей PostgreSQL
+
+Выполни запрос под учётными данными мигратора, импортера и API. Для локального Compose достаточно одного запуска под общей ролью. Запрос читает каталоги и не создаёт объекты.
+
+```sql
+SELECT current_user, rolsuper, rolcreaterole,
+       has_database_privilege(current_database(), 'CREATE') AS can_create_schema,
+       has_database_privilege(current_database(), 'TEMP') AS can_stage
+FROM pg_roles WHERE rolname = current_user;
+SHOW search_path;
+```
+
+Администратор с правами создания роли и схемы может выделить пользовательским данным отдельную схему с отдельным владельцем. Для назначения другого владельца администратору нужна возможность `SET ROLE` к этой роли. Исключи пользовательскую схему из `search_path` импортера и мигратора. Импорт пишет в таблицы каталога ФНС, а откат меняет указатель в `published_releases`. Таблицы `sme_stage` и `entrepreneur_regime_stage` временные. PostgreSQL убирает их при коммите или откате транзакции, в которой они созданы. На локальном Compose общая роль имеет `SUPERUSER`, поэтому права на схему не ограничивают доступ этой роли. Для изоляции при развёртывании используй отдельные роли API и импортера без `SUPERUSER`, членства в роли владельца и прав на пользовательскую схему. [Создание схемы](https://www.postgresql.org/docs/17/sql-createschema.html), [атрибуты ролей](https://www.postgresql.org/docs/17/role-attributes.html), [временные таблицы](https://www.postgresql.org/docs/17/sql-createtable.html)
+
 ## DaData
 
 По умолчанию API читает только PostgreSQL. Для согласованной среды задай `DADATA_ENABLED=true`, `DADATA_TOKEN` и положительный `DADATA_DAILY_BUDGET` через окружение или локальный `.env`. Выдели ключ для этого процесса и задай бюджет в пределах его квоты. Проверь разрешённую аудиторию и условия показа реквизитов до включения.
