@@ -219,23 +219,55 @@ func TestStage11LimitsAndEvidence(t *testing.T) {
 			t.Fatalf("expected both observations before the limit: %+v %v", answer, err)
 		}
 	})
-	t.Run("external_address_never_sent", func(t *testing.T) {
+	t.Run("external_address_cited_alongside_local_data", func(t *testing.T) {
 		const question = "Что известно о компании 1073906000376?"
 		e := e
 		e.Reader.Lookup = func(context.Context, string, string, string) ([]dadata.Party, bool, string) {
 			var party dadata.Party
 			party.INN, party.OGRN, party.Type, party.BranchType = "3907056353", "1073906000376", "LEGAL", "MAIN"
-			party.Address.Value = "PRIVATE_EXTERNAL_ADDRESS"
+			party.Address.Value = "TEST_EXTERNAL_ADDRESS"
 			return []dadata.Party{party}, false, ""
 		}
 		p := scripted(t, question, "get_company_profile", `{"id":"reg:1073906000376"}`, `{"records":["1:/data/company/name"]}`, func(content string) {
-			if strings.Contains(content, "PRIVATE_EXTERNAL_ADDRESS") || strings.Contains(content, "find-party") {
-				t.Fatalf("external payload sent to the model: %s", content)
+			if !strings.Contains(content, "TEST_EXTERNAL_ADDRESS") || !strings.Contains(content, "dadata-1") ||
+				!strings.Contains(content, "/data/company/name") {
+				t.Fatalf("expected both sources in model input: %s", content)
 			}
 		})
 		answer, err := (Run{p, e, 2, 24000}).Ask(t.Context(), question)
-		if err != nil || len(answer.Records) == 0 {
-			t.Fatalf("expected a local observation: %+v %v", answer, err)
+		external := false
+		for _, record := range answer.Records {
+			if record.SourceRef == "dadata-1" {
+				external = record.AsOf == nil && record.Record["address"] == "TEST_EXTERNAL_ADDRESS" &&
+					record.Record["retrieved_at"] != nil
+			}
+		}
+		if err != nil || !external || !strings.Contains(Text(answer), "[dadata-1] https://dadata.ru/api/find-party/") {
+			t.Fatalf("expected attributed external observation: %+v %v", answer, err)
+		}
+	})
+	t.Run("external_only_search", func(t *testing.T) {
+		e := e
+		e.Reader.Lookup = func(context.Context, string, string, string) ([]dadata.Party, bool, string) {
+			return []dadata.Party{{
+				INN: "0000000018", OGRN: "1000000000000", Type: "LEGAL", BranchType: "MAIN", DisplayName: "Внешняя компания",
+			}}, false, ""
+		}
+		for _, tc := range []struct{ query, mode, path, url string }{
+			{"0000000018", "inn", "/data/items/0/dadata", "https://dadata.ru/api/find-party/"},
+			{"Внешняя компания", "name", "/data/external_suggestions/0", "https://dadata.ru/api/suggest/party/"},
+		} {
+			t.Run(tc.mode, func(t *testing.T) {
+				p := scripted(t, tc.query, "search_companies", `{"q":"`+tc.query+`","mode":"`+tc.mode+`"}`, "", func(content string) {
+					if !strings.Contains(content, tc.path) || !strings.Contains(content, "Внешняя компания") {
+						t.Fatalf("missing external match: %s", content)
+					}
+				})
+				answer, err := (Run{p, e, 2, 24000}).Ask(t.Context(), tc.query)
+				if err != nil || !strings.Contains(Text(answer), "[dadata-1] "+tc.url) {
+					t.Fatalf("expected citation to external search: %+v %v", answer, err)
+				}
+			})
 		}
 	})
 }

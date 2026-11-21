@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -18,6 +19,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/krunpy0/company-search/backend/internal/agent"
 	"github.com/krunpy0/company-search/backend/internal/company"
+	"github.com/krunpy0/company-search/backend/internal/dadata"
 	"github.com/krunpy0/company-search/backend/internal/tools"
 )
 
@@ -67,10 +69,27 @@ func run(question string, steps, budget int, rawJSON, chat bool) error {
 	if err := pool.Ping(startup); err != nil {
 		return errors.New("не удалось подключиться к PostgreSQL")
 	}
-	// DaData terms for transmitting observations to the model are unconfirmed.
+	reader := company.Reader{Pool: pool}
+	if value := os.Getenv("DADATA_AGENT_ENABLED"); value != "" {
+		enabled, err := strconv.ParseBool(value)
+		if err != nil {
+			return errors.New("некорректное значение DADATA_AGENT_ENABLED")
+		}
+		if enabled {
+			dailyBudget, err := strconv.Atoi(os.Getenv("DADATA_DAILY_BUDGET"))
+			if err != nil {
+				return errors.New("задайте положительный целочисленный DADATA_DAILY_BUDGET")
+			}
+			client, err := dadata.New(os.Getenv("DADATA_TOKEN"), dailyBudget)
+			if err != nil {
+				return errors.New("для DaData задайте DADATA_TOKEN и положительный DADATA_DAILY_BUDGET")
+			}
+			reader.Lookup = client.Lookup
+		}
+	}
 	run := agent.Run{
 		Provider: provider,
-		Tools:    tools.Executor{Reader: company.Reader{Pool: pool}},
+		Tools:    tools.Executor{Reader: reader},
 		Steps:    steps,
 		Bytes:    budget,
 	}

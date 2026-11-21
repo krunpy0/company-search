@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"maps"
 	"strconv"
-	"strings"
 
 	"github.com/krunpy0/company-search/backend/internal/tools"
 )
@@ -32,19 +31,8 @@ func newPage(result tools.ToolResult, number int, tool string) (page, error) {
 	data, _ := p.body["data"].(map[string]any)
 	p.sources, _ = data["sources"].(map[string]any)
 	delete(data, "sources")
-	delete(data, "dadata")
-	delete(data, "external_suggestions")
-	if items, ok := data["items"].([]any); ok && tool == "search_companies" {
-		local := items[:0]
-		for _, value := range items {
-			item := value.(map[string]any)
-			_, external := item["dadata"]
-			delete(item, "dadata")
-			if !external || item["registration_evidence"] != nil || item["name"] != nil {
-				local = append(local, item)
-			}
-		}
-		data["items"] = local
+	if source, ok := p.sources["dadata"]; ok {
+		p.sources[fmt.Sprintf("dadata-%d", number)] = source
 	}
 	return p, nil
 }
@@ -66,7 +54,7 @@ func (p page) fit(budget int) ([]byte, map[string]Observation, error) {
 			return content, records, err
 		}
 		shortened := false
-		for _, field := range []string{"items", "observations", "headcounts"} {
+		for _, field := range []string{"items", "observations", "headcounts", "external_suggestions"} {
 			if list, ok := data[field].([]any); ok && len(list) > 0 {
 				data[field] = list[:len(list)-1]
 				shortened = true
@@ -91,9 +79,13 @@ func (p page) collect(value any, path, subject string, records map[string]Observ
 			subject = id
 		}
 		ref, _ := node["source_ref"].(string)
+		if ref == "dadata" {
+			ref = fmt.Sprintf("dadata-%d", p.number)
+			node["source_ref"] = ref
+		}
 		source, _ := p.sources[ref].(map[string]any)
 		asOf, hasDate := node["as_of"]
-		if strings.HasPrefix(ref, "fns-") && source != nil && hasDate {
+		if source != nil && hasDate {
 			key := fmt.Sprintf("%d:%s", p.number, path)
 			records[key] = Observation{subject, p.tool, ref, asOf, source, node}
 			sources[ref] = source
