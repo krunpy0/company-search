@@ -16,6 +16,16 @@ func expectedRelease(dataset string, now time.Time) time.Time {
 	now = now.In(time.FixedZone("MSK", 3*60*60))
 	year, month, today := now.Date()
 	switch dataset {
+	case "taxoffence":
+		if month < time.December {
+			year--
+		}
+		return time.Date(year, time.December, 1, 0, 0, 0, 0, time.UTC)
+	case "rsmppp":
+		if today < 15 {
+			month--
+		}
+		return time.Date(year, month, 15, 0, 0, 0, 0, time.UTC)
 	case "paytax":
 		if month < time.April {
 			year--

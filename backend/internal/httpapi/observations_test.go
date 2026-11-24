@@ -22,7 +22,7 @@ func TestPublishedEmploymentAndRegimes(t *testing.T) {
 	}
 	defer pool.Close()
 	router := gin.New()
-	RegisterCompanies(router, pool, nil)
+	RegisterCompanies(router, pool, nil, false)
 	get := func(path string, status int) map[string]any {
 		t.Helper()
 		w := httptest.NewRecorder()

@@ -10,7 +10,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/krunpy0/company-search/backend/internal/company"
-	"github.com/krunpy0/company-search/backend/internal/dadata"
 	"github.com/krunpy0/company-search/backend/internal/tools"
 )
 
@@ -97,7 +96,7 @@ func TestStage11Questions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			e := executor
 			if tt.name == "11_partial" {
-				e.Reader.Lookup = func(context.Context, string, string, string) ([]dadata.Party, bool, string) {
+				e.Reader.Lookup = func(context.Context, string, string, string) ([]company.RegistryParty, bool, string) {
 					return nil, false, "provider_timeout"
 				}
 			}
@@ -222,14 +221,15 @@ func TestStage11LimitsAndEvidence(t *testing.T) {
 	t.Run("external_address_cited_alongside_local_data", func(t *testing.T) {
 		const question = "Что известно о компании 1073906000376?"
 		e := e
-		e.Reader.Lookup = func(context.Context, string, string, string) ([]dadata.Party, bool, string) {
-			var party dadata.Party
-			party.INN, party.OGRN, party.Type, party.BranchType = "3907056353", "1073906000376", "LEGAL", "MAIN"
-			party.Address.Value = "TEST_EXTERNAL_ADDRESS"
-			return []dadata.Party{party}, false, ""
+		e.Reader.Lookup = func(context.Context, string, string, string) ([]company.RegistryParty, bool, string) {
+			var party company.RegistryParty
+			party.INN, party.Registration, party.Kind = "3907056353", "1073906000376", "legal"
+			party.Address = "TEST_EXTERNAL_ADDRESS"
+			party.Manager.Name = "TEST_MANAGER_NOT_FOR_MODEL"
+			return []company.RegistryParty{party}, false, ""
 		}
 		p := scripted(t, question, "get_company_profile", `{"id":"reg:1073906000376"}`, `{"records":["1:/data/company/name"]}`, func(content string) {
-			if !strings.Contains(content, "TEST_EXTERNAL_ADDRESS") || !strings.Contains(content, "dadata-1") ||
+			if strings.Contains(content, "TEST_MANAGER_NOT_FOR_MODEL") || !strings.Contains(content, "TEST_EXTERNAL_ADDRESS") || !strings.Contains(content, "dadata-1") ||
 				!strings.Contains(content, "/data/company/name") {
 				t.Fatalf("expected both sources in model input: %s", content)
 			}
@@ -248,9 +248,9 @@ func TestStage11LimitsAndEvidence(t *testing.T) {
 	})
 	t.Run("external_only_search", func(t *testing.T) {
 		e := e
-		e.Reader.Lookup = func(context.Context, string, string, string) ([]dadata.Party, bool, string) {
-			return []dadata.Party{{
-				INN: "0000000018", OGRN: "1000000000000", Type: "LEGAL", BranchType: "MAIN", DisplayName: "Внешняя компания",
+		e.Reader.Lookup = func(context.Context, string, string, string) ([]company.RegistryParty, bool, string) {
+			return []company.RegistryParty{{
+				INN: "0000000018", Registration: "1000000000000", Kind: "legal", Name: "Внешняя компания",
 			}}, false, ""
 		}
 		for _, tc := range []struct{ query, mode, path, url string }{

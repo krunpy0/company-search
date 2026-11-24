@@ -116,12 +116,14 @@ func readFNSXML(ctx context.Context, r io.Reader, name, version, info string, re
 	}
 	var expected, seen int
 	var open, closed, sender bool
+	// The support register's 4.04 release declares КолДок=1 even in members with many documents.
+	countPlaceholder := false
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		token, err := d.Token()
-		if err == io.EOF && closed && (!requireSender || sender) && seen == expected {
+		if err == io.EOF && closed && (!requireSender || sender) && (seen == expected || countPlaceholder && seen > 0) {
 			return nil
 		}
 		if err != nil {
@@ -145,6 +147,7 @@ func readFNSXML(ctx context.Context, r io.Reader, name, version, info string, re
 				if err != nil || expected <= 0 {
 					return fmt.Errorf("invalid КолДок")
 				}
+				countPlaceholder = info == "РЕЕСТРМСП-ПП" && version == SupportVersion && expected == 1
 				open = true
 			case "ИдОтпр":
 				if !open || sender || seen > 0 {
@@ -155,7 +158,7 @@ func readFNSXML(ctx context.Context, r io.Reader, name, version, info string, re
 				}
 				sender = true
 			case "Документ":
-				if !open || (requireSender && !sender) || seen >= expected {
+				if !open || (requireSender && !sender) || (!countPlaceholder && seen >= expected) {
 					return fmt.Errorf("unexpected document")
 				}
 				if err := read(d, t); err != nil {

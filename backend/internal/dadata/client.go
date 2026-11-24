@@ -11,13 +11,14 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/krunpy0/company-search/backend/internal/company"
 )
 
 const endpoint = "https://suggestions.dadata.ru"
 
-type Party struct {
+type party struct {
 	INN, OGRN, Type, KPP, OKVED string
-	DisplayName                 string `json:"-"`
 	BranchType                  string `json:"branch_type"`
 	Name                        struct {
 		FullWithOPF  string `json:"full_with_opf"`
@@ -28,7 +29,11 @@ type Party struct {
 		RegistrationDate int64 `json:"registration_date"`
 		ActualityDate    int64 `json:"actuality_date"`
 	}
-	Address struct{ Value string }
+	Address    struct{ Value string }
+	Management struct {
+		Name, Post string
+		StartDate  int64 `json:"start_date"`
+	}
 }
 
 type Client struct {
@@ -95,7 +100,7 @@ func (c *Client) backoff(retryAfter string, now time.Time) {
 
 // Lookup returns a public warning code on failure. Provider errors may contain
 // sensitive data, so they never escape the client.
-func (c *Client) Lookup(ctx context.Context, query, mode, kind string) ([]Party, bool, string) {
+func (c *Client) Lookup(ctx context.Context, query, mode, kind string) ([]company.RegistryParty, bool, string) {
 	method, count := "findById", 300
 	if mode == "name" {
 		method, count = "suggest", 20
@@ -143,18 +148,55 @@ func (c *Client) Lookup(ctx context.Context, query, mode, kind string) ([]Party,
 	var result struct {
 		Suggestions []struct {
 			Value string
-			Data  Party
+			Data  party
 		}
 	}
 	if len(data) > maxBody || json.Unmarshal(data, &result) != nil || result.Suggestions == nil {
 		return nil, false, "provider_invalid_response"
 	}
-	parties := make([]Party, 0, min(count, len(result.Suggestions)))
+	parties := make([]company.RegistryParty, 0, min(count, len(result.Suggestions)))
 	for _, suggestion := range result.Suggestions[:min(count, len(result.Suggestions))] {
-		suggestion.Data.DisplayName = suggestion.Value
-		parties = append(parties, suggestion.Data)
+		raw := suggestion.Data
+		p := company.RegistryParty{
+			INN: raw.INN, Registration: raw.OGRN, KPP: raw.KPP, OKVED: raw.OKVED,
+			Name: strings.TrimSpace(raw.Name.ShortWithOPF), Status: raw.State.Status,
+			RegisteredOn:  registryDate(raw.State.RegistrationDate),
+			LastChangedOn: registryDate(raw.State.ActualityDate),
+		}
+		if p.Name == "" {
+			p.Name = strings.TrimSpace(raw.Name.FullWithOPF)
+		}
+		if p.Name == "" {
+			p.Name = strings.TrimSpace(suggestion.Value)
+		}
+		switch {
+		case raw.Type == "LEGAL" && raw.BranchType == "MAIN":
+			p.Kind, p.Address = "legal", strings.TrimSpace(raw.Address.Value)
+			if mode != "name" {
+				p.Manager = company.RegistryManager{
+					Name:      strings.TrimSpace(raw.Management.Name),
+					Title:     strings.TrimSpace(raw.Management.Post),
+					StartedOn: registryDate(raw.Management.StartDate),
+				}
+			}
+		case raw.Type == "INDIVIDUAL" && raw.BranchType != "BRANCH":
+			p.Kind = "entrepreneur"
+			if mode != "name" {
+				p.ResidenceCity = strings.TrimSpace(raw.Address.Value)
+			}
+		default:
+			continue
+		}
+		parties = append(parties, p)
 	}
 	return parties, len(result.Suggestions) >= count, ""
+}
+
+func registryDate(timestamp int64) string {
+	if timestamp <= 0 {
+		return ""
+	}
+	return time.UnixMilli(timestamp).In(time.FixedZone("MSK", 3*60*60)).Format(time.DateOnly)
 }
 
 func transportWarning(err error) string {

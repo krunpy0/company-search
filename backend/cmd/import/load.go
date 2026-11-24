@@ -3,6 +3,7 @@ package main
 import (
 	"archive/zip"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
@@ -10,6 +11,26 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/krunpy0/company-search/backend/internal/fns"
 )
+
+func loadEvents(ctx context.Context, tx pgx.Tx, z *zip.Reader, dataset string, published time.Time, releaseID, runID int64) (int64, error) {
+	columns := []string{"release_id", "inn", "reg_no", "as_of", "event_on", "document_id", "source_file", "event_id", "details"}
+	return copyBatches(ctx, tx, "fns_events", columns, runID, func(yield func([]any) error) error {
+		return fns.ReadEvents(ctx, z, dataset, func(row fns.Event) error {
+			if row.AsOf.After(published) || (dataset == "taxoffence" && row.AsOf.Year() != published.Year()-1) {
+				return fmt.Errorf("invalid observation date in document %q for release", row.DocumentID)
+			}
+			var registration *string
+			if row.Registration != "" {
+				registration = &row.Registration
+			}
+			details, err := json.Marshal(row.Details)
+			if err != nil {
+				return err
+			}
+			return yield([]any{releaseID, row.INN, registration, row.AsOf, row.EventOn, row.DocumentID, row.File, row.EventID, details})
+		})
+	})
+}
 
 func loadRevexp(ctx context.Context, tx pgx.Tx, z *zip.Reader, published time.Time, year int, releaseID, runID int64) (int64, error) {
 	columns := []string{"release_id", "inn", "display_name", "report_year", "as_of", "document_date", "source_doc_id", "source_file", "income", "expense"}

@@ -65,7 +65,12 @@ func main() {
 		}
 		lookup = client.Lookup
 	}
-	httpapi.RegisterCompanies(r, pool, lookup)
+	registryDetails, err := strconv.ParseBool(env("DADATA_REGISTRY_DETAILS_ENABLED", "false"))
+	if err != nil || (registryDetails && !enabled) {
+		slog.Error("DADATA_REGISTRY_DETAILS_ENABLED requires a boolean and DaData must be enabled to use it")
+		os.Exit(1)
+	}
+	httpapi.RegisterCompanies(r, pool, lookup, registryDetails)
 	srv := &http.Server{Addr: env("HTTP_ADDR", ":8080"), Handler: r, ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		slog.Info("starting HTTP server", "address", srv.Addr)

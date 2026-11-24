@@ -28,8 +28,9 @@ const (
 )
 
 type Reader struct {
-	Pool   *pgxpool.Pool
-	Lookup PartyLookup
+	Pool                   *pgxpool.Pool
+	Lookup                 PartyLookup
+	IncludeRegistryDetails bool
 }
 
 type Body map[string]any
@@ -157,7 +158,7 @@ func (r Reader) search(ctx context.Context, params url.Values) (Result, error) {
 			encoded := base64.RawURLEncoding.EncodeToString(data)
 			next = &encoded
 		}
-		p, err := providerSearch(s, r.Lookup, mode, query, kind, page.ID == "")
+		p, err := providerSearch(s, r.Lookup, mode, query, kind, page.ID == "", r.IncludeRegistryDetails)
 		if err != nil {
 			return Result{}, err
 		}
@@ -257,7 +258,7 @@ func (r Reader) detail(ctx context.Context, operation Operation, id string, para
 		}
 		// The local-only routes need DaData just to resolve an otherwise unknown ID.
 		useProvider := operation == ReadProfile || operation == ReadSources || len(candidates) == 0
-		p, err := providerSearch(s, r.Lookup, providerMode, number, "", useProvider && len(candidates) < 2)
+		p, err := providerSearch(s, r.Lookup, providerMode, number, "", useProvider && len(candidates) < 2, r.IncludeRegistryDetails && operation == ReadProfile)
 		if err != nil {
 			return Result{}, err
 		}
@@ -402,6 +403,14 @@ func (r Reader) detail(ctx context.Context, operation Operation, id string, para
 		}
 		if p.state == "checked" && registrationState == "not_loaded" {
 			registrationState = "not_published"
+		}
+		if registrationState != "found" {
+			for _, warning := range p.warnings {
+				if warning["code"] == "provider_identity_conflict" {
+					registrationState = "identity_conflict"
+					break
+				}
+			}
 		}
 		p.apply(body)
 		switch {

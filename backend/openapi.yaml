@@ -366,6 +366,15 @@ components:
         registered_on: {type: string, format: date}
         last_changed_on: {type: string, format: date}
         address: {type: string, description: Standardized address of a legal entity.}
+        manager:
+          type: object
+          description: Optional basic management record for a legal entity on the closed stand.
+          required: [name]
+          properties:
+            name: {type: string}
+            title: {type: string}
+            started_on: {type: string, format: date}
+        residence_city: {type: string, description: Optional city of residence for an entrepreneur on the closed stand.}
         source: {const: dadata}
         source_url: {type: string, format: uri}
         as_of: {type: 'null', description: DaData does not provide a snapshot date for this observation.}

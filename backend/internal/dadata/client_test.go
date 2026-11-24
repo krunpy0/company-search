@@ -18,7 +18,9 @@ func TestLookup(t *testing.T) {
 		results                            int
 	}{
 		{"exact", "inn", "findById", "3907056353", "legal", "LEGAL", 300, 200,
-			`{"suggestions":[{"value":"Example","data":{"type":"LEGAL","branch_type":"MAIN","inn":"3907056353","ogrn":"1073906000376"}}]}`, "", 1},
+			`{"suggestions":[{"value":"Example","data":{"type":"LEGAL","branch_type":"MAIN","inn":"3907056353","ogrn":"1073906000376","management":{"name":"Example manager","post":"Director","start_date":1669237200000},"address":{"value":"Example address"}}}]}`, "", 1},
+		{"registration ip", "registration", "findById", "326000000000015", "entrepreneur", "INDIVIDUAL", 300, 200,
+			`{"suggestions":[{"value":"Test IP","data":{"type":"INDIVIDUAL","inn":"000000000000","ogrn":"326000000000015","address":{"value":"Test city","unrestricted_value":"Private address"}}}]}`, "", 1},
 		{"suggest", "name", "suggest", "Пример", "entrepreneur", "INDIVIDUAL", 20, 200, `{"suggestions":[]}`, "", 0},
 		{"forbidden", "inn", "findById", "3907056353", "", "", 300, 403, "", "provider_forbidden", 0},
 		{"rate limited", "inn", "findById", "3907056353", "", "", 300, 429, "", "provider_rate_limited", 0},
@@ -62,8 +64,13 @@ func TestLookup(t *testing.T) {
 			if len(items) != tc.results || limited || warning != tc.warning {
 				t.Fatalf("unexpected result: %+v, limited=%v, warning=%q", items, limited, warning)
 			}
-			if len(items) == 1 && (items[0].BranchType != "MAIN" || items[0].DisplayName != "Example") {
+			if tc.name == "exact" && (items[0].Kind != "legal" || items[0].Name != "Example" || items[0].Manager.Name != "Example manager" ||
+				items[0].Manager.Title != "Director" || items[0].Manager.StartedOn != "2022-11-24" || items[0].Address != "Example address") {
 				t.Fatalf("unexpected decoded party: %+v", items[0])
+			}
+			if tc.name == "registration ip" && (items[0].Kind != "entrepreneur" ||
+				items[0].ResidenceCity != "Test city" || items[0].Address != "") {
+				t.Fatalf("unexpected decoded entrepreneur: %+v", items[0])
 			}
 			if tc.status == 429 && client.reserve(time.Now().Add(2*time.Second)) != "provider_rate_limited" {
 				t.Fatal("Retry-After did not extend the cooldown")

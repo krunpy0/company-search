@@ -28,15 +28,17 @@ var additionalDatasets = map[string]struct {
 	schemaDate, version string
 	lockID              int64
 }{
-	"sshr2019": {"20200408", fns.HeadcountVersion, 71004},
-	"snr":      {"20230425", fns.LegalRegimeVersion, 71005},
-	"snrip":    {"20241025", fns.EntrepreneurRegimeVersion, 71006},
-	"paytax":   {"20180110", fns.MoneyTaxVersion, 71007},
-	"debtam":   {"20181201", fns.MoneyTaxVersion, 71008},
+	"sshr2019":   {"20200408", fns.HeadcountVersion, 71004},
+	"snr":        {"20230425", fns.LegalRegimeVersion, 71005},
+	"snrip":      {"20241025", fns.EntrepreneurRegimeVersion, 71006},
+	"paytax":     {"20180110", fns.MoneyTaxVersion, 71007},
+	"debtam":     {"20181201", fns.MoneyTaxVersion, 71008},
+	"rsmppp":     {"20230615", fns.SupportVersion, 71009},
+	"taxoffence": {"20191201", fns.OffenceVersion, 71010},
 }
 
 func main() {
-	dataset := flag.String("dataset", revexp, "FNS dataset (revexp, rsmp, sshr2019, snr, snrip, paytax, debtam)")
+	dataset := flag.String("dataset", revexp, "FNS dataset (revexp, rsmp, sshr2019, snr, snrip, paytax, debtam, rsmppp, taxoffence)")
 	date := flag.String("published-on", "", "FNS release date (YYYY-MM-DD)")
 	archive := flag.String("archive", "", "optional local copy of the official ZIP")
 	check := flag.Bool("check", false, "import the latest expected release if not already imported")
@@ -89,13 +91,22 @@ func run(ctx context.Context, dataset string, published time.Time, archive strin
 		schemaURL, version = base+"structure-"+additionalSpec.schemaDate+".xsd", additionalSpec.version
 		url = base + "data-" + published.Format("20060102") + "-structure-" + additionalSpec.schemaDate + ".zip"
 	}
+	switch dataset {
+	case "rsmppp":
+		period, maxZIP, timeout = "current", 3<<30, 30*time.Minute
+	case "taxoffence":
+		period = strconv.Itoa(year)
+		const base = "https://data.nalog.ru/opendata/7707329152-taxoffence/"
+		url = base + "data-" + published.Format("20060102") + "-structure-20191201.zip"
+		schemaURL = base + "structure-20181201.xsd"
+	}
 	conn, err := lockDataset(ctx, dataset)
 	if err != nil {
 		return err
 	}
 	defer conn.Close(context.Background())
 	cadence := "monthly"
-	if dataset == "paytax" {
+	if dataset == "paytax" || dataset == "taxoffence" {
 		cadence = "yearly"
 	}
 	if _, err := conn.Exec(ctx, `INSERT INTO datasets VALUES ($1, 'ФНС России', $2, $3)
@@ -210,6 +221,8 @@ func run(ctx context.Context, dataset string, published time.Time, archive strin
 		rows, err = loadRSMP(ctx, tx, z, published, releaseID, runID)
 	} else if dataset == "paytax" || dataset == "debtam" {
 		rows, period, err = loadMoneyTax(ctx, tx, z, dataset, published, releaseID, runID)
+	} else if dataset == "rsmppp" || dataset == "taxoffence" {
+		rows, err = loadEvents(ctx, tx, z, dataset, published, releaseID, runID)
 	} else if additional {
 		rows, period, err = loadEmploymentTax(ctx, tx, z, dataset, published, releaseID, runID)
 	} else {

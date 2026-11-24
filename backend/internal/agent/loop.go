@@ -84,7 +84,23 @@ func (r Run) Ask(ctx context.Context, question string) (Answer, error) {
 	return (&Session{Run: r}).Ask(ctx, question)
 }
 
-var citation = regexp.MustCompile(`\b(?:fns|dadata)-[0-9]+\b`)
+const eventsInstructions = `
+Если доступен get_company_events, используй его для вопросов о поддержке МСП (rsmppp), налоговых правонарушениях
+(taxoffence), арбитраже (legal-cases), взысканиях (enforcements), проверках (inspections), госконтрактах (contracts),
+отчётности юрлиц (finances), банкротных сообщениях (bankruptcy-messages), Федресурсе (fedresurs)
+и истории событий (timeline), когда нужный раздел доступен в схеме.
+Для общего описания юрлица после карточки запроси finances, если он включён. Для общей проверки контрагента
+также проверь доступные источники событий по смыслу вопроса. Не расходуй квоту на разделы вне запроса.
+Если у ИП есть только ИНН, сначала установи точный ОГРНИП. Для taxoffence передай ИНН юрлица.
+У contracts укажи law (44, 94 или 223) и явно обозначь охват. Пустая страница не доказывает отсутствия событий.
+ФНС публикует taxoffence в пределах правил раскрытия за указанный период. Не называй штраф текущей задолженностью.
+В rsmppp не интерпретируй код единицы как рубли без явного подтверждения. Для Чекко дата события и retrieved_at
+не заменяют as_of. Цитируй точную ссылку [checko-N] и приводи record_url, если он получен.
+В finances revenue — выручка из бухгалтерской формы, а income в локальном наборе ФНС — доходы. Не смешивай их.
+Сообщение о банкротстве само по себе не подтверждает текущий статус процедуры.
+Если нужна ещё одна страница, используй next_page только после полностью полученной страницы.`
+
+var citation = regexp.MustCompile(`\b(?:fns|dadata|checko)-[0-9]+\b`)
 
 type Answer struct {
 	Partial    bool          `json:"partial,omitempty"`
@@ -118,7 +134,14 @@ func (s *Session) Ask(ctx context.Context, question string) (Answer, error) {
 	if len(s.messages) > 100 || len(raw) > 256000 {
 		return Answer{}, fmt.Errorf("история заполнена; начните новый диалог командой /new")
 	}
-	messages := append([]Message{{Role: "system", Content: instructions}}, s.messages...)
+	schemas, systemPrompt := tools.Schemas(), instructions
+	if configured, ok := r.Tools.(interface{ Schemas() json.RawMessage }); ok {
+		schemas = configured.Schemas()
+		if strings.Contains(string(schemas), `"get_company_events"`) {
+			systemPrompt += eventsInstructions
+		}
+	}
+	messages := append([]Message{{Role: "system", Content: systemPrompt}}, s.messages...)
 	messages = append(messages, Message{Role: "user", Content: question})
 	records := maps.Clone(s.records)
 	if records == nil {
@@ -138,7 +161,7 @@ func (s *Session) Ask(ctx context.Context, question string) (Answer, error) {
 		if remaining <= 0 {
 			break
 		}
-		reply, err := r.Provider.Complete(ctx, messages, tools.Schemas())
+		reply, err := r.Provider.Complete(ctx, messages, schemas)
 		if err != nil {
 			if len(answer.Findings) == 0 {
 				return Answer{}, err
@@ -230,7 +253,7 @@ func checkCitations(text string, records map[string]Observation) error {
 		}
 	}
 	if len(records) > 0 && len(refs) == 0 {
-		return fmt.Errorf("Укажи точные ссылки на полученные источники в формате [fns-N] или [dadata-N]")
+		return fmt.Errorf("Укажи точные ссылки на полученные источники в формате [fns-N], [dadata-N] или [checko-N]")
 	}
 	return nil
 }

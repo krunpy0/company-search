@@ -8,7 +8,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/krunpy0/company-search/backend/internal/company"
-	"github.com/krunpy0/company-search/backend/internal/dadata"
 )
 
 func TestInvalidArgumentsBeforeRead(t *testing.T) {
@@ -138,7 +137,7 @@ func TestExecutePostgreSQL(t *testing.T) {
 	observation := sources["observations"].([]any)[0].(map[string]any)
 	checkEvidence(sources, observation["evidence"].(map[string]any), "rsmp", "2026-11-10")
 
-	e.Reader.Lookup = func(context.Context, string, string, string) ([]dadata.Party, bool, string) {
+	e.Reader.Lookup = func(context.Context, string, string, string) ([]company.RegistryParty, bool, string) {
 		return nil, false, "provider_timeout"
 	}
 	profile := call("get_company_profile", `{"id":"reg:1073906000376"}`)
@@ -150,8 +149,8 @@ func TestExecutePostgreSQL(t *testing.T) {
 		profile["warnings"].([]any)[0].(map[string]any)["code"] != "provider_timeout" {
 		t.Fatalf("expected local evidence and an explicit partial result: %v", profile)
 	}
-	e.Reader.Lookup = func(context.Context, string, string, string) ([]dadata.Party, bool, string) {
-		return []dadata.Party{{INN: "3907056353", OGRN: "1073906000376", Type: "LEGAL", BranchType: "MAIN"}}, false, ""
+	e.Reader.Lookup = func(context.Context, string, string, string) ([]company.RegistryParty, bool, string) {
+		return []company.RegistryParty{{INN: "3907056353", Registration: "1073906000376", Kind: "legal"}}, false, ""
 	}
 	profile = call("get_company_profile", `{"id":"reg:1073906000376"}`)
 	external := profile["dadata"].(map[string]any)

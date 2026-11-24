@@ -31,8 +31,10 @@ func newPage(result tools.ToolResult, number int, tool string) (page, error) {
 	data, _ := p.body["data"].(map[string]any)
 	p.sources, _ = data["sources"].(map[string]any)
 	delete(data, "sources")
-	if source, ok := p.sources["dadata"]; ok {
-		p.sources[fmt.Sprintf("dadata-%d", number)] = source
+	for _, provider := range []string{"dadata", "checko"} {
+		if source, ok := p.sources[provider]; ok {
+			p.sources[fmt.Sprintf("%s-%d", provider, number)] = source
+		}
 	}
 	return p, nil
 }
@@ -79,8 +81,8 @@ func (p page) collect(value any, path, subject string, records map[string]Observ
 			subject = id
 		}
 		ref, _ := node["source_ref"].(string)
-		if ref == "dadata" {
-			ref = fmt.Sprintf("dadata-%d", p.number)
+		if ref == "dadata" || ref == "checko" {
+			ref = fmt.Sprintf("%s-%d", ref, p.number)
 			node["source_ref"] = ref
 		}
 		source, _ := p.sources[ref].(map[string]any)
@@ -108,7 +110,7 @@ func (p page) collect(value any, path, subject string, records map[string]Observ
 func (p page) findings() map[string]any {
 	out := make(map[string]any)
 	data, _ := p.body["data"].(map[string]any)
-	for _, key := range []string{"state", "reason", "as_of", "years", "sections", "coverage", "warnings", "next_cursor", "next_offset"} {
+	for _, key := range []string{"state", "reason", "as_of", "years", "sections", "coverage", "warnings", "next_cursor", "next_offset", "next_page", "period"} {
 		if value, ok := data[key]; ok {
 			out[key] = value
 		}

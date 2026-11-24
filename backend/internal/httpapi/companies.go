@@ -11,7 +11,7 @@ import (
 
 type PartyLookup = company.PartyLookup
 
-func RegisterCompanies(r *gin.Engine, pool *pgxpool.Pool, lookup PartyLookup) {
+func RegisterCompanies(r *gin.Engine, pool *pgxpool.Pool, lookup PartyLookup, registryDetails bool) {
 	group := r.Group("/v1/companies")
 	// Bound concurrent queries even when PostgreSQL or a broad name search is slow.
 	slots := make(chan struct{}, 8)
@@ -27,7 +27,7 @@ func RegisterCompanies(r *gin.Engine, pool *pgxpool.Pool, lookup PartyLookup) {
 		}
 	})
 
-	reader := company.Reader{Pool: pool, Lookup: lookup}
+	reader := company.Reader{Pool: pool, Lookup: lookup, IncludeRegistryDetails: registryDetails}
 	read := func(operation company.Operation) gin.HandlerFunc {
 		return func(c *gin.Context) {
 			result, err := reader.Read(c.Request.Context(), operation, c.Param("id"), c.Request.URL.Query())

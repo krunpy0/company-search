@@ -56,6 +56,14 @@ func Schemas() json.RawMessage { return json.RawMessage(schemaJSON) }
 
 type Executor struct {
 	Reader company.Reader
+	Events *Events
+}
+
+func (e Executor) Schemas() json.RawMessage {
+	if e.Events == nil {
+		return Schemas()
+	}
+	return e.Events.schemas()
 }
 
 type ToolResult struct {
@@ -66,6 +74,9 @@ type ToolResult struct {
 
 // The caller supplies userID. Quotas for individual users are a later stage.
 func (e Executor) Execute(ctx context.Context, _ string, toolName string, args json.RawMessage) ToolResult {
+	if toolName == "get_company_events" && e.Events != nil && len(e.Events.datasets()) != 0 {
+		return e.Events.execute(ctx, e.Reader, args)
+	}
 	operation, ok := operations[toolName]
 	if !ok {
 		return rejection("unknown_tool", "Unknown company tool")

@@ -20,6 +20,7 @@ import (
 	"github.com/krunpy0/company-search/backend/internal/agent"
 	"github.com/krunpy0/company-search/backend/internal/company"
 	"github.com/krunpy0/company-search/backend/internal/dadata"
+	"github.com/krunpy0/company-search/backend/internal/checko"
 	"github.com/krunpy0/company-search/backend/internal/tools"
 )
 
@@ -87,9 +88,13 @@ func run(question string, steps, budget int, rawJSON, chat bool) error {
 			reader.Lookup = client.Lookup
 		}
 	}
+	events, err := eventSources()
+	if err != nil {
+		return err
+	}
 	run := agent.Run{
 		Provider: provider,
-		Tools:    tools.Executor{Reader: reader},
+		Tools:    tools.Executor{Reader: reader, Events: &events},
 		Steps:    steps,
 		Bytes:    budget,
 	}
@@ -128,6 +133,44 @@ func run(question string, steps, budget int, rawJSON, chat bool) error {
 	}
 	fmt.Fprintln(os.Stderr, "Диалог. /new — новая компания, /exit — выход.")
 	return conversation(os.Stdin, os.Stderr, emit, func() { session = &agent.Session{Run: run} })
+}
+
+func eventSources() (tools.Events, error) {
+	var events tools.Events
+	var enableChecko bool
+	flags := []struct {
+		name   string
+		target *bool
+	}{
+		{"FNS_SUPPORT_AGENT_ENABLED", &events.Support},
+		{"FNS_TAX_OFFENCES_AGENT_ENABLED", &events.TaxOffences},
+		{"CHECKO_AGENT_ENABLED", &enableChecko},
+	}
+	for _, flag := range flags {
+		if raw := os.Getenv(flag.name); raw != "" {
+			enabled, err := strconv.ParseBool(raw)
+			if err != nil {
+				return events, fmt.Errorf("некорректное значение %s", flag.name)
+			}
+			*flag.target = enabled
+		}
+	}
+	if enableChecko {
+		budget := 100
+		if raw := os.Getenv("CHECKO_DAILY_BUDGET"); raw != "" {
+			var err error
+			budget, err = strconv.Atoi(raw)
+			if err != nil {
+				return events, errors.New("задайте CHECKO_DAILY_BUDGET от 1 до 100")
+			}
+		}
+		var err error
+		events.Checko, err = checko.New(os.Getenv("CHECKO_API_KEY"), budget)
+		if err != nil {
+			return events, err
+		}
+	}
+	return events, nil
 }
 
 func conversation(input io.Reader, prompt io.Writer, ask func(string) error, reset func()) error {

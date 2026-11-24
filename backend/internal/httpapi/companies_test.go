@@ -11,7 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/krunpy0/company-search/backend/internal/dadata"
+	"github.com/krunpy0/company-search/backend/internal/company"
 )
 
 func TestPublishedCompanyAPI(t *testing.T) {
@@ -25,7 +25,7 @@ func TestPublishedCompanyAPI(t *testing.T) {
 	}
 	defer pool.Close()
 	router := gin.New()
-	RegisterCompanies(router, pool, nil)
+	RegisterCompanies(router, pool, nil, false)
 
 	get := func(path string, want int) map[string]any {
 		t.Helper()
@@ -170,38 +170,45 @@ func TestPublishedCompanyAPI(t *testing.T) {
 	}
 	get("/v1/companies/inn:"+absent, 404)
 
-	main := dadata.Party{INN: inn, OGRN: reg, BranchType: "MAIN", Type: "LEGAL", DisplayName: "DaData fixture"}
+	main := company.RegistryParty{INN: inn, Registration: reg, Kind: "legal", Name: "DaData fixture",
+		Address: "Test legal address", LastChangedOn: "2025-01-01",
+		Manager: company.RegistryManager{Name: "Test manager", Title: "Director", StartedOn: "2024-01-01"},
+	}
 	branch := main
-	branch.BranchType = "BRANCH"
+	branch.Kind = ""
 	otherINN := main
 	otherINN.INN = "7707083893"
 	const externalINN = "000000000000"
-	ip := dadata.Party{INN: externalINN, OGRN: "326000000000015", Type: "INDIVIDUAL", DisplayName: "ИП Тест"}
+	ip := company.RegistryParty{INN: externalINN, Registration: "326000000000015", Kind: "entrepreneur", Name: "ИП Тест", ResidenceCity: "Test city", Address: "Private address fixture"}
 	ip2 := ip
-	ip2.OGRN = "326000000000026"
+	ip2.Registration = "326000000000026"
 	var warning string
+	var conflictingProvider bool
 	router = gin.New()
-	RegisterCompanies(router, pool, func(_ context.Context, query, mode, _ string) ([]dadata.Party, bool, string) {
+	lookup := func(_ context.Context, query, mode, _ string) ([]company.RegistryParty, bool, string) {
 		switch {
 		case warning != "":
 			return nil, false, warning
 		case query == externalINN:
-			return []dadata.Party{ip, ip2}, false, ""
-		case query == ip.OGRN:
-			return []dadata.Party{ip, ip2}, false, ""
+			return []company.RegistryParty{ip, ip2}, false, ""
+		case query == ip.Registration:
+			return []company.RegistryParty{ip, ip2}, false, ""
 		case mode == "name" || query == inn:
-			return []dadata.Party{branch, main, main}, false, ""
+			return []company.RegistryParty{branch, main, main}, false, ""
+		case query == reg && conflictingProvider:
+			return []company.RegistryParty{otherINN}, false, ""
 		case query == reg:
-			return []dadata.Party{otherINN}, false, ""
+			return []company.RegistryParty{main}, false, ""
 		default:
-			return []dadata.Party{}, false, ""
+			return []company.RegistryParty{}, false, ""
 		}
-	})
+	}
+	RegisterCompanies(router, pool, lookup, true)
 	merged := get("/v1/companies?q="+inn, 200)
 	mergedItems := merged["items"].([]any)
 	firstMatch := mergedItems[0].(map[string]any)
 	if len(mergedItems) != 1 || firstMatch["name"].(map[string]any)["value"] != name ||
-		firstMatch["dadata"].(map[string]any)["name"] != main.DisplayName ||
+		firstMatch["dadata"].(map[string]any)["name"] != main.Name ||
 		merged["warnings"].([]any)[0].(map[string]any)["code"] != "provider_name_differs" {
 		t.Fatal("expected a single matching registration with both observations")
 	}
@@ -211,7 +218,34 @@ func TestPublishedCompanyAPI(t *testing.T) {
 		nameSearch["coverage"].(map[string]any)["dadata"] != "limited" {
 		t.Fatalf("expected one separate suggestion and limited coverage: %+v", nameSearch)
 	}
+	exact := get("/v1/companies?q="+reg, 200)["items"].([]any)
+	if len(exact) != 1 {
+		t.Fatalf("expected exact legal registration: %+v", exact)
+	}
+	registryProfile := get(base, 200)["dadata"].(map[string]any)
+	manager := registryProfile["manager"].(map[string]any)
+	if registryProfile["address"] != main.Address || registryProfile["last_changed_on"] != main.LastChangedOn ||
+		registryProfile["source"] != "dadata" || registryProfile["retrieved_at"] == nil || registryProfile["as_of"] != nil ||
+		manager["name"] != main.Manager.Name || manager["title"] != main.Manager.Title ||
+		manager["started_on"] != main.Manager.StartedOn {
+		t.Fatalf("unexpected legal registry details: %+v", registryProfile)
+	}
+	if suggestions[0].(map[string]any)["manager"] != nil {
+		t.Fatal("name suggestions must not include new registry details")
+	}
+	router = gin.New()
+	RegisterCompanies(router, pool, lookup, false)
+	baseline := get(base, 200)["dadata"].(map[string]any)
+	if baseline["manager"] != nil || baseline["address"] != main.Address {
+		t.Fatalf("unexpected registry fields with enrichment disabled: %+v", baseline)
+	}
+	router = gin.New()
+	RegisterCompanies(router, pool, lookup, true)
+	conflictingProvider = true
 	rejected := get(base, 200)
+	if rejected["sections"].(map[string]any)["registration"].(map[string]any)["state"] != "identity_conflict" {
+		t.Fatal("profile coverage must report an identity conflict")
+	}
 	if rejected["dadata"] != nil || rejected["warnings"].([]any)[0].(map[string]any)["code"] != "provider_identity_conflict" {
 		t.Fatal("conflicting provider identity must not be attached to the local profile")
 	}
@@ -219,8 +253,10 @@ func TestPublishedCompanyAPI(t *testing.T) {
 		t.Fatal("expected two external registrations for the same INN")
 	}
 	get("/v1/companies/inn:"+externalINN, 409)
-	external := get("/v1/companies/reg:"+ip.OGRN, 200)
-	if external["dadata"].(map[string]any)["id"] != "reg:"+ip.OGRN {
+	external := get("/v1/companies/reg:"+ip.Registration, 200)
+	ipDetails := external["dadata"].(map[string]any)
+	if ipDetails["id"] != "reg:"+ip.Registration || ipDetails["residence_city"] != ip.ResidenceCity ||
+		ipDetails["address"] != nil || ipDetails["manager"] != nil {
 		t.Fatal("expected an exact external registration in the profile")
 	}
 	if len(get("/v1/companies?q="+absent, 200)["items"].([]any)) != 0 {

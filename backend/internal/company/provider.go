@@ -5,11 +5,22 @@ import (
 	"slices"
 	"strings"
 	"time"
-
-	"github.com/krunpy0/company-search/backend/internal/dadata"
 )
 
-type PartyLookup func(context.Context, string, string, string) ([]dadata.Party, bool, string)
+type PartyLookup func(context.Context, string, string, string) ([]RegistryParty, bool, string)
+
+// RegistryParty contains normalized fields from a registry adapter.
+type RegistryParty struct {
+	INN, Registration, Kind, KPP, OKVED, Name, Status   string
+	RegisteredOn, LastChangedOn, Address, ResidenceCity string
+	Manager                                             RegistryManager
+}
+
+type RegistryManager struct {
+	Name      string `json:"name"`
+	Title     string `json:"title,omitempty"`
+	StartedOn string `json:"started_on,omitempty"`
+}
 
 type searchItem struct {
 	Match
@@ -17,22 +28,24 @@ type searchItem struct {
 }
 
 type registrationObservation struct {
-	SourceRef     string  `json:"source_ref,omitempty"`
-	ID            string  `json:"id"`
-	INN           string  `json:"inn"`
-	Registration  string  `json:"registration_number"`
-	Kind          string  `json:"kind"`
-	Name          string  `json:"name,omitempty"`
-	KPP           string  `json:"kpp,omitempty"`
-	OKVED         string  `json:"okved,omitempty"`
-	Status        string  `json:"status,omitempty"`
-	RegisteredOn  string  `json:"registered_on,omitempty"`
-	LastChangedOn string  `json:"last_changed_on,omitempty"`
-	Address       string  `json:"address,omitempty"`
-	Source        string  `json:"source"`
-	SourceURL     string  `json:"source_url"`
-	AsOf          *string `json:"as_of"`
-	RetrievedAt   string  `json:"retrieved_at"`
+	SourceRef     string           `json:"source_ref,omitempty"`
+	ID            string           `json:"id"`
+	INN           string           `json:"inn"`
+	Registration  string           `json:"registration_number"`
+	Kind          string           `json:"kind"`
+	Name          string           `json:"name,omitempty"`
+	KPP           string           `json:"kpp,omitempty"`
+	OKVED         string           `json:"okved,omitempty"`
+	Status        string           `json:"status,omitempty"`
+	RegisteredOn  string           `json:"registered_on,omitempty"`
+	LastChangedOn string           `json:"last_changed_on,omitempty"`
+	Address       string           `json:"address,omitempty"`
+	Manager       *RegistryManager `json:"manager,omitempty"`
+	ResidenceCity string           `json:"residence_city,omitempty"`
+	Source        string           `json:"source"`
+	SourceURL     string           `json:"source_url"`
+	AsOf          *string          `json:"as_of"`
+	RetrievedAt   string           `json:"retrieved_at"`
 }
 
 func (o registrationObservation) identity() Identity {
@@ -55,7 +68,7 @@ func (p *providerResult) warn(code string) {
 	p.warnings = append(p.warnings, Body{"source": "dadata", "code": code})
 }
 
-func providerSearch(s snapshot, lookup PartyLookup, mode, query, kind string, firstPage bool) (providerResult, error) {
+func providerSearch(s snapshot, lookup PartyLookup, mode, query, kind string, firstPage, includeDetails bool) (providerResult, error) {
 	p := providerResult{state: "disabled"}
 	if lookup == nil {
 		return p, nil
@@ -83,9 +96,15 @@ func providerSearch(s snapshot, lookup PartyLookup, mode, query, kind string, fi
 	now := time.Now().UTC().Format(time.RFC3339)
 	seen := make(map[string]string)
 	for _, raw := range parties {
-		o, ok := normalizeParty(raw)
-		if !ok || (kind != "" && o.Kind != kind) ||
-			(mode == "inn" && o.INN != query) || (mode == "registration" && o.Registration != query) {
+		o, ok := normalizeParty(raw, includeDetails && mode != "name")
+		if !ok || (kind != "" && o.Kind != kind) {
+			continue
+		}
+		if (mode == "inn" && o.INN != query) || (mode == "registration" && o.Registration != query) {
+			if mode == "inn" {
+				seen[o.Registration] = ""
+			}
+			p.warn("provider_identity_conflict")
 			continue
 		}
 		if inn, exists := seen[o.Registration]; exists {
@@ -102,9 +121,9 @@ func providerSearch(s snapshot, lookup PartyLookup, mode, query, kind string, fi
 	if len(p.observations) == 0 {
 		return p, nil
 	}
-	numbers := make([]string, 0, len(seen))
-	for number := range seen {
-		numbers = append(numbers, number)
+	numbers := make([]string, 0, len(p.observations))
+	for _, observation := range p.observations {
+		numbers = append(numbers, observation.Registration)
 	}
 	ctx, cancel := context.WithTimeout(s.request, 500*time.Millisecond)
 	defer cancel()
@@ -143,29 +162,24 @@ func providerSearch(s snapshot, lookup PartyLookup, mode, query, kind string, fi
 	return p, rows.Err()
 }
 
-func normalizeParty(raw dadata.Party) (registrationObservation, bool) {
-	o := registrationObservation{ID: "reg:" + raw.OGRN, INN: raw.INN, Registration: raw.OGRN,
-		OKVED: raw.OKVED, Status: raw.State.Status}
+func normalizeParty(raw RegistryParty, includeDetails bool) (registrationObservation, bool) {
+	o := registrationObservation{
+		ID: "reg:" + raw.Registration, INN: raw.INN, Registration: raw.Registration, Kind: raw.Kind,
+		Name: raw.Name, OKVED: raw.OKVED, Status: raw.Status,
+		RegisteredOn: raw.RegisteredOn, LastChangedOn: raw.LastChangedOn,
+	}
 	switch {
-	case raw.Type == "LEGAL" && raw.BranchType == "MAIN" && len(raw.INN) == 10 && len(raw.OGRN) == 13:
-		o.Kind, o.KPP, o.Address = "legal", raw.KPP, raw.Address.Value
-	case raw.Type == "INDIVIDUAL" && raw.BranchType != "BRANCH" && len(raw.INN) == 12 && len(raw.OGRN) == 15:
-		o.Kind = "entrepreneur"
+	case raw.Kind == "legal" && len(raw.INN) == 10 && len(raw.Registration) == 13:
+		o.KPP, o.Address = raw.KPP, raw.Address
+		if includeDetails && raw.Manager.Name != "" {
+			o.Manager = &raw.Manager
+		}
+	case raw.Kind == "entrepreneur" && len(raw.INN) == 12 && len(raw.Registration) == 15:
+		if includeDetails {
+			o.ResidenceCity = raw.ResidenceCity
+		}
 	default:
 		return o, false
-	}
-	o.Name = strings.TrimSpace(raw.Name.ShortWithOPF)
-	if o.Name == "" {
-		o.Name = strings.TrimSpace(raw.Name.FullWithOPF)
-	}
-	if o.Name == "" {
-		o.Name = strings.TrimSpace(raw.DisplayName)
-	}
-	if raw.State.RegistrationDate > 0 {
-		o.RegisteredOn = time.UnixMilli(raw.State.RegistrationDate).UTC().Format(time.DateOnly)
-	}
-	if raw.State.ActualityDate > 0 {
-		o.LastChangedOn = time.UnixMilli(raw.State.ActualityDate).UTC().Format(time.DateOnly)
 	}
 	return o, validQuery("inn", o.INN) && validQuery("registration", o.Registration)
 }
