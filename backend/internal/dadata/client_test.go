@@ -52,11 +52,15 @@ func TestLookup(t *testing.T) {
 				fmt.Fprint(w, tc.body)
 			}))
 			defer server.Close()
-			client, err := New("fixture", 10)
-			if err != nil {
-				t.Fatal(err)
+			var cooldown time.Time
+			client := &Client{
+				token: "fixture", baseURL: server.URL, http: server.Client(),
+				reserve: func(context.Context) string { return "" },
+				setCooldown: func(_ context.Context, until time.Time) error {
+					cooldown = until
+					return nil
+				},
 			}
-			client.baseURL = server.URL
 			if tc.status == 0 {
 				client.http.Timeout = 200 * time.Millisecond
 			}
@@ -72,27 +76,9 @@ func TestLookup(t *testing.T) {
 				items[0].ResidenceCity != "Test city" || items[0].Address != "") {
 				t.Fatalf("unexpected decoded entrepreneur: %+v", items[0])
 			}
-			if tc.status == 429 && client.reserve(time.Now().Add(2*time.Second)) != "provider_rate_limited" {
+			if tc.status == 429 && !cooldown.After(time.Now().Add(time.Minute)) {
 				t.Fatal("Retry-After did not extend the cooldown")
 			}
 		})
-	}
-}
-
-func TestRequestBudget(t *testing.T) {
-	client, err := New("fixture", 2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	now := time.Date(2026, 11, 21, 20, 59, 50, 0, time.UTC)
-	for _, step := range []struct {
-		seconds time.Duration
-		want    string
-	}{
-		{0, ""}, {0, "provider_rate_limited"}, {1, ""}, {2, "provider_budget_exhausted"}, {10, ""},
-	} {
-		if got := client.reserve(now.Add(step.seconds * time.Second)); got != step.want {
-			t.Fatalf("after %ds got %q, want %q", step.seconds, got, step.want)
-		}
 	}
 }

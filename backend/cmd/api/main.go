@@ -57,10 +57,18 @@ func main() {
 		os.Exit(1)
 	}
 	if enabled {
-		budget, _ := strconv.Atoi(os.Getenv("DADATA_DAILY_BUDGET"))
-		client, err := dadata.New(os.Getenv("DADATA_TOKEN"), budget)
+		budget, _ := strconv.Atoi(os.Getenv("EXTERNAL_API_DAILY_BUDGET"))
+		userBudget, _ := strconv.Atoi(env("USER_EXTERNAL_API_DAILY_BUDGET", "5"))
+		// Company reads hold a snapshot connection while calling the provider.
+		quotaPool, err := pgxpool.NewWithConfig(context.Background(), pool.Config())
 		if err != nil {
-			slog.Error("DaData requires DADATA_TOKEN and a positive DADATA_DAILY_BUDGET")
+			slog.Error("could not create quota pool")
+			os.Exit(1)
+		}
+		defer quotaPool.Close()
+		client, err := dadata.New(os.Getenv("DADATA_TOKEN"), budget, quotaPool, userBudget)
+		if err != nil {
+			slog.Error("DaData requires DADATA_TOKEN and positive EXTERNAL_API_DAILY_BUDGET and USER_EXTERNAL_API_DAILY_BUDGET")
 			os.Exit(1)
 		}
 		lookup = client.Lookup
@@ -70,8 +78,12 @@ func main() {
 		slog.Error("DADATA_REGISTRY_DETAILS_ENABLED requires a boolean and DaData must be enabled to use it")
 		os.Exit(1)
 	}
-	httpapi.RegisterCompanies(r, pool, lookup, registryDetails)
-	srv := &http.Server{Addr: env("HTTP_ADDR", ":8080"), Handler: r, ReadHeaderTimeout: 5 * time.Second}
+	session := httpapi.RegisterAuth(r, pool)
+	httpapi.RegisterCompanies(r.Group("", session), pool, lookup, registryDetails)
+	srv := &http.Server{
+		Addr: env("HTTP_ADDR", ":8080"), Handler: r,
+		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second,
+	}
 	go func() {
 		slog.Info("starting HTTP server", "address", srv.Addr)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {

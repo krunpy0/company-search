@@ -18,9 +18,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"github.com/krunpy0/company-search/backend/internal/agent"
+	"github.com/krunpy0/company-search/backend/internal/checko"
 	"github.com/krunpy0/company-search/backend/internal/company"
 	"github.com/krunpy0/company-search/backend/internal/dadata"
-	"github.com/krunpy0/company-search/backend/internal/checko"
 	"github.com/krunpy0/company-search/backend/internal/tools"
 )
 
@@ -77,13 +77,18 @@ func run(question string, steps, budget int, rawJSON, chat bool) error {
 			return errors.New("некорректное значение DADATA_AGENT_ENABLED")
 		}
 		if enabled {
-			dailyBudget, err := strconv.Atoi(os.Getenv("DADATA_DAILY_BUDGET"))
+			dailyBudget, err := strconv.Atoi(os.Getenv("EXTERNAL_API_DAILY_BUDGET"))
 			if err != nil {
-				return errors.New("задайте положительный целочисленный DADATA_DAILY_BUDGET")
+				return errors.New("задайте положительный целочисленный EXTERNAL_API_DAILY_BUDGET")
 			}
-			client, err := dadata.New(os.Getenv("DADATA_TOKEN"), dailyBudget)
+			quotaPool, err := pgxpool.NewWithConfig(ctx, pool.Config())
 			if err != nil {
-				return errors.New("для DaData задайте DADATA_TOKEN и положительный DADATA_DAILY_BUDGET")
+				return errors.New("не удалось создать пул PostgreSQL для квот")
+			}
+			defer quotaPool.Close()
+			client, err := dadata.New(os.Getenv("DADATA_TOKEN"), dailyBudget, quotaPool, 5)
+			if err != nil {
+				return errors.New("для DaData задайте DADATA_TOKEN и положительный EXTERNAL_API_DAILY_BUDGET")
 			}
 			reader.Lookup = client.Lookup
 		}
