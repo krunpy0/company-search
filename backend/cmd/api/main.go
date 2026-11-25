@@ -87,7 +87,14 @@ func main() {
 		os.Exit(1)
 	}
 	session := httpapi.RegisterAuth(r, pool)
-	httpapi.RegisterCompanies(r.Group("", session), pool, lookup, registryDetails)
+	authenticated := r.Group("", session)
+	httpapi.RegisterCompanies(authenticated, pool, lookup, registryDetails)
+	chatService, err := configureChat(pool, lookup)
+	if err != nil {
+		slog.Error("invalid chat configuration", "error", err)
+		os.Exit(1)
+	}
+	httpapi.RegisterChat(authenticated, chatService)
 	srv := &http.Server{
 		Addr: env("HTTP_ADDR", ":8080"), Handler: r,
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second,

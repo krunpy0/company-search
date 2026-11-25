@@ -25,7 +25,7 @@ import (
 )
 
 func main() {
-	steps := flag.Int("steps", 6, "maximum model requests (1–12)")
+	steps := flag.Int("steps", 12, "maximum model requests (1–12)")
 	budget := flag.Int("result-bytes", 24000, "maximum total tool result bytes (1024–64000)")
 	chat := flag.Bool("chat", false, "continue an interactive conversation after the first answer")
 	rawJSON := flag.Bool("json", false, "print structured results and source metadata")

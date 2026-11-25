@@ -7,16 +7,21 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"maps"
+	"math"
 	"net/http"
 	"net/url"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/krunpy0/company-search/backend/internal/quota"
 )
 
 type ChatCompletions struct {
 	key, model, endpoint string
+	budget               *quota.TokenBudget
 }
 
 func NewChatCompletions(baseURL, model, key string) (ChatCompletions, error) {
@@ -30,6 +35,53 @@ func NewChatCompletions(baseURL, model, key string) (ChatCompletions, error) {
 		return ChatCompletions{}, errors.New("задайте OPENAI_MODEL")
 	}
 	return ChatCompletions{key: strings.TrimSpace(key), model: model, endpoint: base.JoinPath("chat/completions").String()}, nil
+}
+
+func (p ChatCompletions) WithTokenBudget(budget quota.TokenBudget) ChatCompletions {
+	p.budget = &budget
+	return p
+}
+
+type TokenUsage struct {
+	PromptTokens     int64
+	CompletionTokens int64
+	TotalTokens      int64
+	ReservedTokens   int64
+}
+
+type tokenUsageKey struct{}
+
+func WithTokenUsage(ctx context.Context, observe func(TokenUsage)) context.Context {
+	return context.WithValue(ctx, tokenUsageKey{}, observe)
+}
+
+func parseTokenUsage(raw json.RawMessage, reserved int64) (TokenUsage, bool) {
+	var reported struct {
+		Prompt     *int64 `json:"prompt_tokens"`
+		Completion *int64 `json:"completion_tokens"`
+		Total      *int64 `json:"total_tokens"`
+	}
+	if json.Unmarshal(raw, &reported) != nil {
+		return TokenUsage{}, false
+	}
+	for _, count := range []*int64{reported.Prompt, reported.Completion, reported.Total} {
+		if count != nil && (*count < 0 || *count > math.MaxInt32) {
+			return TokenUsage{}, false
+		}
+	}
+	usage := TokenUsage{ReservedTokens: reserved}
+	if reported.Prompt != nil {
+		usage.PromptTokens = *reported.Prompt
+	}
+	if reported.Completion != nil {
+		usage.CompletionTokens = *reported.Completion
+	}
+	if reported.Total != nil {
+		usage.TotalTokens = *reported.Total
+		return usage, usage.TotalTokens >= usage.PromptTokens+usage.CompletionTokens
+	}
+	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+	return usage, reported.Prompt != nil && reported.Completion != nil
 }
 
 type functionDefinition struct {
@@ -61,13 +113,14 @@ func (p ChatCompletions) Complete(ctx context.Context, messages []Message, schem
 			Function: functionDefinition{Name: name, Description: schema.Description, Parameters: definitions[name]},
 		})
 	}
+	const maxTokens = 2048
 	body, err := json.Marshal(struct {
 		Model     string         `json:"model"`
 		Messages  []Message      `json:"messages"`
 		Tools     []functionTool `json:"tools"`
 		MaxTokens int            `json:"max_tokens"`
 	}{
-		Model: p.model, Messages: messages, Tools: tools, MaxTokens: 2048,
+		Model: p.model, Messages: messages, Tools: tools, MaxTokens: maxTokens,
 	})
 	if err != nil {
 		return Message{}, errors.New("could not encode Chat Completions request")
@@ -82,6 +135,16 @@ func (p ChatCompletions) Complete(ctx context.Context, messages []Message, schem
 		req.Header.Set("Authorization", "Bearer "+p.key)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	// Reserve a byte per input token, with an allowance for provider-side framing.
+	reserved := int64(len(body) + 16*(len(messages)+len(tools)+1) + maxTokens)
+	var reservation quota.TokenReservation
+	if p.budget != nil {
+		reservation, err = p.budget.Reserve(request, reserved)
+		if err != nil {
+			return Message{}, err
+		}
+	}
+	observe, _ := ctx.Value(tokenUsageKey{}).(func(TokenUsage))
 	client := http.Client{
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
@@ -93,7 +156,7 @@ func (p ChatCompletions) Complete(ctx context.Context, messages []Message, schem
 		return Message{}, errors.New("Chat Completions request failed")
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK && p.budget == nil && observe == nil {
 		return Message{}, fmt.Errorf("Chat Completions returned HTTP %d", resp.StatusCode)
 	}
 	const maxResponse = 1 << 20
@@ -106,12 +169,27 @@ func (p ChatCompletions) Complete(ctx context.Context, messages []Message, schem
 	}
 	var response struct {
 		Error   json.RawMessage `json:"error"`
+		Usage   json.RawMessage `json:"usage"`
 		Choices []struct {
 			FinishReason string  `json:"finish_reason"`
 			Message      Message `json:"message"`
 		} `json:"choices"`
 	}
-	if err := json.Unmarshal(raw, &response); err != nil || len(response.Choices) != 1 ||
+	decodeErr := json.Unmarshal(raw, &response)
+	if usage, ok := parseTokenUsage(response.Usage, reserved); ok {
+		if p.budget != nil {
+			if err := reservation.Reconcile(ctx, usage.TotalTokens); err != nil {
+				slog.Error("could not reconcile model token usage")
+			}
+		}
+		if observe != nil {
+			observe(usage)
+		}
+	}
+	if resp.StatusCode != http.StatusOK {
+		return Message{}, fmt.Errorf("Chat Completions returned HTTP %d", resp.StatusCode)
+	}
+	if decodeErr != nil || len(response.Choices) != 1 ||
 		(len(response.Error) > 0 && string(response.Error) != "null") {
 		return Message{}, errors.New("invalid Chat Completions response")
 	}

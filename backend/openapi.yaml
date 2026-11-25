@@ -60,6 +60,101 @@ paths:
           description: Session revoked.
         '401': {$ref: '#/components/responses/SessionRequired'}
         '503': {$ref: '#/components/responses/AuthUnavailable'}
+  /v1/chat/dialogues:
+    get:
+      operationId: listChatDialogues
+      summary: List the current user's dialogues, newest ID first.
+      parameters:
+        - $ref: '#/components/parameters/ChatBeforeId'
+        - $ref: '#/components/parameters/ChatPageSize'
+      responses:
+        '200':
+          description: Page of dialogues.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ChatDialoguePage'}
+        '400': {$ref: '#/components/responses/ChatInvalidInput'}
+        '401': {$ref: '#/components/responses/SessionRequired'}
+        '503': {$ref: '#/components/responses/ChatUnavailable'}
+    post:
+      operationId: createChatDialogue
+      summary: Create a dialogue with an optional selected registration.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                registration:
+                  oneOf:
+                    - {$ref: '#/components/schemas/ChatRegistration'}
+                    - {type: string, const: ''}
+                    - {type: 'null'}
+      responses:
+        '201':
+          description: Dialogue created.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ChatDialogue'}
+        '400': {$ref: '#/components/responses/ChatInvalidInput'}
+        '401': {$ref: '#/components/responses/SessionRequired'}
+        '503': {$ref: '#/components/responses/ChatUnavailable'}
+  /v1/chat/dialogues/{id}/messages:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {$ref: '#/components/schemas/ChatId'}
+    get:
+      operationId: listChatMessages
+      summary: Read completed turns in the current user's dialogue, newest ID first.
+      parameters:
+        - $ref: '#/components/parameters/ChatBeforeId'
+        - $ref: '#/components/parameters/ChatPageSize'
+      responses:
+        '200':
+          description: Dialogue and page of completed turns.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ChatHistory'}
+        '400': {$ref: '#/components/responses/ChatInvalidInput'}
+        '401': {$ref: '#/components/responses/SessionRequired'}
+        '404': {$ref: '#/components/responses/ChatNotFound'}
+        '503': {$ref: '#/components/responses/ChatUnavailable'}
+    post:
+      operationId: sendChatMessage
+      summary: Ask a question and wait for the full answer or a registration choice.
+      description: If the dialogue has candidates, send a candidate registration as the entire message to resume the original question.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content: {type: string, minLength: 1, maxLength: 2000}
+      responses:
+        '201':
+          description: Completed turn saved.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ChatTurn'}
+        '400': {$ref: '#/components/responses/ChatInvalidInput'}
+        '401': {$ref: '#/components/responses/SessionRequired'}
+        '404': {$ref: '#/components/responses/ChatNotFound'}
+        '409':
+          description: Another turn is already running in this dialogue (turn_in_progress).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '429':
+          description: Message budget, token budget or server concurrency limit reached (message_budget_exhausted, token_budget_exhausted or busy).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '503': {$ref: '#/components/responses/ChatUnavailable'}
   /v1/companies:
     get:
       operationId: searchCompanies
@@ -309,6 +404,16 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
 components:
+  parameters:
+    ChatBeforeId:
+      name: before_id
+      in: query
+      description: Return IDs lower than this cursor. Omit it for the first page.
+      schema: {$ref: '#/components/schemas/ChatId'}
+    ChatPageSize:
+      name: limit
+      in: query
+      schema: {type: integer, minimum: 1, maximum: 50, default: 20}
   securitySchemes:
     bearerAuth:
       type: http
@@ -322,6 +427,21 @@ components:
   responses:
     InvalidCredentialsInput:
       description: Invalid email address, password or JSON body.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    ChatInvalidInput:
+      description: Invalid JSON, registration, dialogue ID, pagination, message or pending selection (invalid_json, invalid_registration, invalid_dialogue_id, invalid_pagination, invalid_message or registration_selection_required).
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    ChatNotFound:
+      description: The current user has no dialogue with this ID (dialogue_not_found).
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    ChatUnavailable:
+      description: Session or chat data unavailable, or model unavailable for sending (auth_unavailable, chat_unavailable or model_unavailable).
       content:
         application/json:
           schema: {$ref: '#/components/schemas/Error'}
@@ -347,6 +467,78 @@ components:
         application/json:
           schema: {$ref: '#/components/schemas/Error'}
   schemas:
+    ChatId:
+      type: string
+      pattern: '^[1-9][0-9]{0,18}$'
+    ChatRegistration:
+      type: string
+      pattern: '^(reg:)?([0-9]{13}|[0-9]{15})$'
+    ChatDialogue:
+      type: object
+      required: [id, created_at, updated_at]
+      properties:
+        id: {$ref: '#/components/schemas/ChatId'}
+        registration: {$ref: '#/components/schemas/ChatRegistration'}
+        candidates:
+          type: array
+          items: {$ref: '#/components/schemas/ChatRegistration'}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    ChatTurn:
+      type: object
+      required: [id, question, answer, created_at]
+      properties:
+        id: {$ref: '#/components/schemas/ChatId'}
+        question: {type: string}
+        answer: {$ref: '#/components/schemas/ChatAnswer'}
+        created_at: {type: string, format: date-time}
+    ChatAnswer:
+      type: object
+      required: [summary]
+      properties:
+        summary: {type: string}
+        partial: {type: boolean}
+        candidates:
+          type: array
+          items: {$ref: '#/components/schemas/ChatRegistration'}
+        records:
+          type: array
+          items:
+            type: object
+            required: [tool, source_ref, as_of, source, record]
+            properties:
+              subject: {type: string}
+              tool: {type: string}
+              source_ref: {type: string}
+              as_of: {type: [string, 'null'], format: date}
+              source: {type: object, additionalProperties: true}
+              record: {type: object, additionalProperties: true}
+        findings:
+          type: array
+          items:
+            type: object
+            required: [tool, details]
+            properties:
+              tool: {type: string}
+              arguments: {}
+              details: {type: [object, 'null'], additionalProperties: true}
+    ChatDialoguePage:
+      type: object
+      required: [dialogues]
+      properties:
+        dialogues:
+          type: array
+          items: {$ref: '#/components/schemas/ChatDialogue'}
+        next_before_id: {$ref: '#/components/schemas/ChatId'}
+    ChatHistory:
+      type: object
+      required: [dialogue, messages]
+      properties:
+        dialogue: {$ref: '#/components/schemas/ChatDialogue'}
+        messages:
+          type: array
+          items: {$ref: '#/components/schemas/ChatTurn'}
+        next_before_id: {$ref: '#/components/schemas/ChatId'}
     Credentials:
       type: object
       required: [email, password]

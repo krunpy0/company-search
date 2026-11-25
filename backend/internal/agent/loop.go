@@ -98,10 +98,12 @@ const instructions = `Ты помощник по российским компа
 только после полностью полученной страницы. Честно сообщай об ограничениях покрытия.`
 
 type Session struct {
-	Run      Run
-	messages []Message
-	records  map[string]Observation
-	pending  *registrationChoice
+	Run             Run
+	messages        []Message
+	registration    string
+	requireEvidence bool
+	records         map[string]Observation
+	pending         *registrationChoice
 }
 
 type registrationChoice struct {
@@ -115,6 +117,11 @@ func (c registrationChoice) answer() Answer {
 
 func (r Run) Ask(ctx context.Context, question string) (Answer, error) {
 	return (&Session{Run: r}).Ask(ctx, question)
+}
+
+// AskWithHistory uses prior dialogue messages for context and collects fresh evidence.
+func (r Run) AskWithHistory(ctx context.Context, question, registration string, history []Message) (Answer, error) {
+	return (&Session{Run: r, messages: history, registration: registration, requireEvidence: true}).Ask(ctx, question)
 }
 
 const eventsInstructions = `
@@ -164,7 +171,7 @@ func (s *Session) Ask(ctx context.Context, question string) (Answer, error) {
 	if strings.TrimSpace(question) == "" {
 		return Answer{}, fmt.Errorf("вопрос пуст")
 	}
-	selected := ""
+	selected := s.registration
 	if s.pending != nil {
 		input := strings.TrimSpace(question)
 		selected = "reg:" + strings.TrimPrefix(input, "reg:")
@@ -183,6 +190,12 @@ func (s *Session) Ask(ctx context.Context, question string) (Answer, error) {
 		if strings.Contains(string(schemas), `"get_company_events"`) {
 			systemPrompt += eventsInstructions
 		}
+	}
+	if s.requireEvidence {
+		systemPrompt += "\nДля ответа на вопрос о компании проверь сведения инструментами в этом ходе. Предыдущие сообщения дают контекст, но не подтверждают факты."
+	}
+	if s.registration != "" {
+		systemPrompt += "\nДля текущего диалога зафиксирована регистрация " + s.registration + ". Используй её в поле id. Не подменяй её регистрацией из истории."
 	}
 	messages := append([]Message{{Role: "system", Content: systemPrompt}}, s.messages...)
 	messages = append(messages, Message{Role: "user", Content: question})
@@ -240,9 +253,17 @@ func (s *Session) Ask(ctx context.Context, question string) (Answer, error) {
 			if text == "" {
 				return Answer{}, fmt.Errorf("модель вернула пустой ответ")
 			}
+			if s.requireEvidence && len(answer.Findings) == 0 {
+				messages = append(messages, Message{Role: "user", Content: "Сначала проверь сведения инструментами в текущем запросе."})
+				continue
+			}
 			if selected != "" && !checkedSelection {
 				messages = append(messages, Message{Role: "assistant", Content: text}, Message{Role: "user", Content: "Сначала проверь выбранную регистрацию " + selected + " через инструмент."})
 				continue
+			}
+			if s.requireEvidence && len(records) == 0 {
+				answer.Summary = "Подтверждённых сведений для ответа не получено. Состояние источников указано в результатах проверки."
+				return answer, nil
 			}
 			if err := checkCitations(text, records); err != nil {
 				messages = append(messages, Message{Role: "assistant", Content: text}, Message{Role: "user", Content: err.Error() + ". Исправь ответ по полученным источникам."})
@@ -304,6 +325,9 @@ func (s *Session) Ask(ctx context.Context, question string) (Answer, error) {
 			if searching && (arguments.Mode == "" || arguments.Mode == "auto" || arguments.Mode == "inn") {
 				if candidates := page.registrations(strings.TrimPrefix(strings.TrimSpace(arguments.Q), "inn:")); len(candidates) > 1 {
 					searched = &registrationChoice{question: question, candidates: candidates}
+					if s.requireEvidence {
+						return searched.answer(), nil
+					}
 				}
 			}
 			emptySearch := searching && page.emptySearch()

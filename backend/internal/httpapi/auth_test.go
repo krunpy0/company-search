@@ -44,7 +44,7 @@ func TestAccountSessionsAndExternalQuota(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	exec("TRUNCATE accounts.users, accounts.sessions, accounts.external_usage, accounts.external_credentials")
+	exec("TRUNCATE accounts.users, accounts.sessions, accounts.external_usage, accounts.external_credentials, accounts.chat_dialogues, accounts.chat_turns, accounts.chat_message_usage, accounts.model_token_usage")
 
 	newRouter := func(pool, quotaPool *pgxpool.Pool, providerLimit int) *gin.Engine {
 		router := gin.New()

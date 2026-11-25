@@ -16,6 +16,11 @@ func WithUser(ctx context.Context, userID int64) context.Context {
 	return context.WithValue(ctx, userKey{}, userID)
 }
 
+func UserID(ctx context.Context) (int64, bool) {
+	id, ok := ctx.Value(userKey{}).(int64)
+	return id, ok && id > 0
+}
+
 type Gate struct {
 	pool                     *pgxpool.Pool
 	key                      [sha256.Size]byte
@@ -76,7 +81,7 @@ func (g Gate) Reserve(ctx context.Context) string {
 		return "provider_rate_limited"
 	}
 
-	if userID, ok := ctx.Value(userKey{}).(int64); ok {
+	if userID, ok := UserID(ctx); ok {
 		var reserved int
 		err := tx.QueryRow(ctx, `
 			INSERT INTO accounts.external_usage AS usage (user_id, day, used)

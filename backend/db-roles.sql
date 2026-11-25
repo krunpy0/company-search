@@ -13,5 +13,7 @@ GRANT USAGE ON SCHEMA accounts TO company_api;
 GRANT SELECT, INSERT ON accounts.users TO company_api;
 GRANT SELECT, INSERT, DELETE ON accounts.sessions TO company_api;
 GRANT SELECT, INSERT, UPDATE ON accounts.external_usage, accounts.external_credentials TO company_api;
+GRANT SELECT, INSERT, UPDATE ON accounts.chat_dialogues, accounts.chat_message_usage, accounts.model_token_usage TO company_api;
+GRANT SELECT, INSERT ON accounts.chat_turns TO company_api;
 GRANT USAGE ON ALL SEQUENCES IN SCHEMA accounts TO company_api;
 COMMIT;
