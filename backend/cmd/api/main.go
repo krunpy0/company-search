@@ -17,9 +17,13 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/krunpy0/company-search/backend/internal/dadata"
 	"github.com/krunpy0/company-search/backend/internal/httpapi"
+	"github.com/krunpy0/company-search/backend/migrations"
 )
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	if err := godotenv.Load(); err != nil && !errors.Is(err, os.ErrNotExist) {
 		slog.Error("could not load .env")
 		os.Exit(1)
@@ -27,6 +31,10 @@ func main() {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
 		slog.Error("DATABASE_URL is required")
+		os.Exit(1)
+	}
+	if err := runAutoMigrate(ctx, dsn, migrations.Apply); err != nil {
+		slog.Error("auto-migration failed", "error", err)
 		os.Exit(1)
 	}
 	pool, err := pgxpool.New(context.Background(), dsn)
@@ -91,15 +99,26 @@ func main() {
 			os.Exit(1)
 		}
 	}()
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	<-sig
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	<-ctx.Done()
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := srv.Shutdown(ctx); err != nil {
+	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("shutdown", "error", err)
 	}
 }
+
+func runAutoMigrate(ctx context.Context, dsn string, apply func(context.Context, string) error) error {
+	autoMigrate, err := strconv.ParseBool(env("AUTO_MIGRATE", "true"))
+	if err != nil {
+		return errors.New("invalid AUTO_MIGRATE")
+	}
+	if !autoMigrate {
+		slog.Info("skipping auto-migration", "reason", "AUTO_MIGRATE=false")
+		return nil
+	}
+	return apply(ctx, dsn)
+}
+
 func env(k, d string) string {
 	if v := os.Getenv(k); v != "" {
 		return v
