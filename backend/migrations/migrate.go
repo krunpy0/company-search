@@ -48,8 +48,10 @@ func applyFS(ctx context.Context, dsn string, fsys fs.FS) error {
 		_ = tx.Rollback(cleanup)
 	}()
 
-	if _, err := tx.Exec(migrateCtx, `SELECT pg_advisory_xact_lock($1);
-		CREATE TABLE IF NOT EXISTS schema_migrations (name text PRIMARY KEY)`, advisoryLockID); err != nil {
+	if _, err := tx.Exec(migrateCtx, `SELECT pg_advisory_xact_lock($1)`, advisoryLockID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(migrateCtx, `CREATE TABLE IF NOT EXISTS schema_migrations (name text PRIMARY KEY)`); err != nil {
 		return err
 	}
 	names, err := fs.Glob(fsys, "*.sql")
