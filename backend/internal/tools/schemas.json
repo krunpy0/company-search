@@ -1,5 +1,6 @@
 {
   "get_company_financials": {
+    "description": "Get annual income and expenses by taxpayer INN.",
     "type": "object",
     "properties": {
       "id": {
@@ -19,6 +20,7 @@
     "additionalProperties": false
   },
   "get_company_profile": {
+    "description": "Get the profile and section availability.",
     "type": "object",
     "properties": {
       "id": {
@@ -33,6 +35,7 @@
     "additionalProperties": false
   },
   "get_company_sources": {
+    "description": "Get the releases and documents used by the company response.",
     "type": "object",
     "properties": {
       "id": {
@@ -47,6 +50,7 @@
     "additionalProperties": false
   },
   "get_company_taxes": {
+    "description": "Get published tax payments, debts or special regimes.",
     "type": "object",
     "properties": {
       "as_of": {
@@ -60,20 +64,21 @@
       },
       "limit": {
         "default": 100,
-        "description": "Payment or debt page size.",
+        "description": "Payment or debt page size. Omit for regimes.",
         "maximum": 100,
         "minimum": 1,
         "type": "integer"
       },
       "offset": {
         "default": 0,
-        "description": "Use next_offset from the previous payment or debt page.",
+        "description": "Use next_offset from the previous payment or debt page. Omit for regimes.",
         "maximum": 1000000,
         "minimum": 0,
         "type": "integer"
       },
       "section": {
         "default": "regimes",
+        "description": "Select one section per call. For regimes only id and optionally as_of are needed.",
         "enum": [
           "payments",
           "debts",
@@ -94,6 +99,7 @@
     "additionalProperties": false
   },
   "search_companies": {
+    "description": "Search published FNS observations and optional DaData registrations.",
     "type": "object",
     "properties": {
       "cursor": {
@@ -125,6 +131,7 @@
         "type": "string"
       },
       "q": {
+        "description": "Company name or a bare INN, OGRN or OGRNIP number. For exact lookups omit the inn:/reg: prefix used by detail tools.",
         "maxLength": 200,
         "minLength": 1,
         "type": "string"

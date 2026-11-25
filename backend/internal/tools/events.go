@@ -61,7 +61,8 @@ func (e Events) contract() json.RawMessage {
 		fields["role"] = map[string]any{"type": "string", "enum": []string{"plaintiff", "defendant", "supplier", "customer"}}
 	}
 	raw, err := json.Marshal(map[string]any{
-		"type": "object", "additionalProperties": false,
+		"description": "Get company events or financial statements from the enabled source selected by dataset.",
+		"type":        "object", "additionalProperties": false,
 		"required": []string{"id", "dataset"}, "properties": fields,
 	})
 	if err != nil {

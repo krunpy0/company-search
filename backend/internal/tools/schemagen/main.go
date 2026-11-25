@@ -34,10 +34,12 @@ type parameter struct {
 
 type operation struct {
 	ID         string `yaml:"operationId"`
+	Summary    string
 	Parameters []parameter
 }
 
 type argumentSchema struct {
+	Description          string                    `json:"description,omitempty"`
 	Type                 string                    `json:"type"`
 	Properties           map[string]map[string]any `json:"properties"`
 	Required             []string                  `json:"required"`
@@ -78,13 +80,13 @@ func generate() ([]byte, error) {
 	if err := yaml.Unmarshal(api, &spec); err != nil {
 		return nil, err
 	}
-	operations := make(map[string][]parameter)
+	operations := make(map[string]operation)
 	for _, path := range spec.Paths {
 		if path.Get.ID != "" {
 			if _, exists := operations[path.Get.ID]; exists {
 				return nil, fmt.Errorf("duplicate operationId %s", path.Get.ID)
 			}
-			operations[path.Get.ID] = path.Get.Parameters
+			operations[path.Get.ID] = path.Get
 		}
 	}
 
@@ -105,17 +107,18 @@ func generate() ([]byte, error) {
 		}
 		name, rest, _ := strings.Cut(line, "` | ")
 		arguments, _, _ := strings.Cut(rest, " | ")
-		params, exists := operations[operationIDs[name]]
+		operation, exists := operations[operationIDs[name]]
 		if !exists {
 			return nil, fmt.Errorf("%s: missing mapping to an OpenAPI operation", name)
 		}
 		if _, exists := schemas[name]; exists {
 			return nil, fmt.Errorf("%s: duplicate stage 9 contract", name)
 		}
-		schema, err := argumentProperties(arguments, params)
+		schema, err := argumentProperties(arguments, operation.Parameters)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", name, err)
 		}
+		schema.Description = operation.Summary
 		schemas[name] = schema
 	}
 	if len(schemas) != len(operationIDs) {

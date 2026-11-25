@@ -35,7 +35,7 @@ func TestInvalidArgumentsBeforeRead(t *testing.T) {
 		{"get_company_profile", `{"id":"reg:1073906000377"}`, "invalid_id"},
 		{"get_company_taxes", `{"id":"inn:3907056353","as_of":"2026-02-30"}`, "invalid_arguments"},
 		{"get_company_taxes", `{"id":"inn:3907056353","section":"debts","year":2025}`, "invalid_query"},
-		{"get_company_taxes", `{"id":"inn:3907056353","offset":0}`, "invalid_query"},
+		{"get_company_taxes", `{"id":"inn:3907056353","offset":-1}`, "invalid_arguments"},
 	} {
 		t.Run(tt.name+"/"+tt.args, func(t *testing.T) {
 			// A nil pool makes any premature database call fail the test.
@@ -84,7 +84,7 @@ func TestExecutePostgreSQL(t *testing.T) {
 		}
 	}
 
-	page := call("search_companies", `{"q":"500100732259","limit":1}`)
+	page := call("search_companies", `{"q":"inn:500100732259","limit":1}`)
 	first := page["items"].([]any)[0].(map[string]any)
 	checkEvidence(page, first["registration_evidence"].(map[string]any), "rsmp", "2026-11-10")
 	nextArgs, _ := json.Marshal(map[string]any{"q": "500100732259", "limit": 1, "cursor": page["next_cursor"]})
@@ -109,6 +109,8 @@ func TestExecutePostgreSQL(t *testing.T) {
 	if item["income"] != "0.00" {
 		t.Fatalf("expected a published zero, got %v", item)
 	}
+	regimes := call("get_company_taxes", `{"id":"reg:325366800093867","section":"regimes","limit":100,"offset":0}`)
+	checkEvidence(regimes, regimes["items"].([]any)[0].(map[string]any), "snrip", "2026-10-01")
 	debts := call("get_company_taxes", `{"id":"inn:6612025806","section":"debts","as_of":"2026-10-01","limit":1}`)
 	item = debts["items"].([]any)[0].(map[string]any)
 	checkEvidence(debts, item, "debtam", "2026-10-01")

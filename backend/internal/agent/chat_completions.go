@@ -33,14 +33,17 @@ func NewChatCompletions(baseURL, model, key string) (ChatCompletions, error) {
 }
 
 type functionDefinition struct {
-	Name       string          `json:"name"`
-	Parameters json.RawMessage `json:"parameters"`
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	Parameters  json.RawMessage `json:"parameters"`
 }
 
 type functionTool struct {
 	Type     string             `json:"type"`
 	Function functionDefinition `json:"function"`
 }
+
+var errModelTimeout = errors.New("истекло время ожидания ответа модели")
 
 func (p ChatCompletions) Complete(ctx context.Context, messages []Message, schemas json.RawMessage) (Message, error) {
 	var definitions map[string]json.RawMessage
@@ -49,9 +52,13 @@ func (p ChatCompletions) Complete(ctx context.Context, messages []Message, schem
 	}
 	tools := make([]functionTool, 0, len(definitions))
 	for _, name := range slices.Sorted(maps.Keys(definitions)) {
+		var schema struct{ Description string }
+		if err := json.Unmarshal(definitions[name], &schema); err != nil {
+			return Message{}, errors.New("invalid company tool schema")
+		}
 		tools = append(tools, functionTool{
 			Type:     "function",
-			Function: functionDefinition{Name: name, Parameters: definitions[name]},
+			Function: functionDefinition{Name: name, Description: schema.Description, Parameters: definitions[name]},
 		})
 	}
 	body, err := json.Marshal(struct {
@@ -65,7 +72,9 @@ func (p ChatCompletions) Complete(ctx context.Context, messages []Message, schem
 	if err != nil {
 		return Message{}, errors.New("could not encode Chat Completions request")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.endpoint, bytes.NewReader(body))
+	request, cancel := context.WithTimeoutCause(ctx, 90*time.Second, errModelTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(request, http.MethodPost, p.endpoint, bytes.NewReader(body))
 	if err != nil {
 		return Message{}, errors.New("could not create Chat Completions request")
 	}
@@ -74,13 +83,12 @@ func (p ChatCompletions) Complete(ctx context.Context, messages []Message, schem
 	}
 	req.Header.Set("Content-Type", "application/json")
 	client := http.Client{
-		Timeout:       30 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		if ctx.Err() != nil {
-			return Message{}, ctx.Err()
+		if cause := context.Cause(request); cause != nil {
+			return Message{}, cause
 		}
 		return Message{}, errors.New("Chat Completions request failed")
 	}
@@ -91,6 +99,9 @@ func (p ChatCompletions) Complete(ctx context.Context, messages []Message, schem
 	const maxResponse = 1 << 20
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxResponse+1))
 	if err != nil || len(raw) > maxResponse {
+		if cause := context.Cause(request); cause != nil {
+			return Message{}, cause
+		}
 		return Message{}, errors.New("could not read bounded Chat Completions response")
 	}
 	var response struct {

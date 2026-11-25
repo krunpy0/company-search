@@ -68,6 +68,7 @@ paths:
         - name: q
           in: query
           required: true
+          description: 'Company name or a bare INN, OGRN or OGRNIP number. For exact lookups omit the inn:/reg: prefix used by detail tools.'
           schema: {type: string, minLength: 1, maxLength: 200}
         - name: mode
           in: query
@@ -212,6 +213,7 @@ paths:
           schema: {type: string, pattern: '^(reg:([0-9]{13}|[0-9]{15})|inn:([0-9]{10}|[0-9]{12}))$'}
         - name: section
           in: query
+          description: Select one section per call. For regimes only id and optionally as_of are needed.
           schema: {type: string, enum: [payments, debts, regimes], default: regimes}
         - name: as_of
           in: query
@@ -223,11 +225,11 @@ paths:
           schema: {type: integer, minimum: 1900, maximum: 9999}
         - name: limit
           in: query
-          description: Payment or debt page size.
+          description: Payment or debt page size. Omit for regimes.
           schema: {type: integer, minimum: 1, maximum: 100, default: 100}
         - name: offset
           in: query
-          description: Use next_offset from the previous payment or debt page.
+          description: Use next_offset from the previous payment or debt page. Omit for regimes.
           schema: {type: integer, minimum: 0, maximum: 1000000, default: 0}
       responses:
         '200':

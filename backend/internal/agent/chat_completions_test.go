@@ -11,7 +11,7 @@ import (
 )
 
 func TestChatCompletionsToolRoundTrip(t *testing.T) {
-	const schemas = `{"get_company_profile":{"type":"object","required":["id"]}}`
+	const schemas = `{"get_company_profile":{"description":"Company profile","type":"object","required":["id"]}}`
 	const details = `[{"type":"reasoning.encrypted","data":"opaque","index":0}]`
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/custom/v1/chat/completions" ||
@@ -31,7 +31,7 @@ func TestChatCompletionsToolRoundTrip(t *testing.T) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		const wireTools = `[{"type":"function","function":{"name":"get_company_profile","parameters":{"type":"object","required":["id"]}}}]`
+		const wireTools = `[{"type":"function","function":{"name":"get_company_profile","description":"Company profile","parameters":{"description":"Company profile","type":"object","required":["id"]}}}]`
 		if string(request.Tools) != wireTools || request.MaxTokens <= 0 {
 			t.Error("expected the generated tool schema, token cap")
 		}

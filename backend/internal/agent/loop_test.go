@@ -123,7 +123,7 @@ func TestStage11Questions(t *testing.T) {
 			if tt.ref == "" {
 				want := "данных нет"
 				if tt.result == "company_not_found" {
-					want = "Компания не найдена в загруженных выпусках ФНС"
+					want = "совпадений в доступных источниках не найдено"
 				}
 				if !strings.Contains(answer.Summary, want) {
 					t.Fatalf("unsupported fact: %+v", answer)

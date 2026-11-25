@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -87,6 +88,24 @@ func (e Executor) Execute(ctx context.Context, _ string, toolName string, args j
 	}
 	id := params.Get("id")
 	params.Del("id")
+	switch operation {
+	case company.ReadSearch:
+		mode := params.Get("mode")
+		prefix, number, prefixed := strings.Cut(strings.TrimSpace(params.Get("q")), ":")
+		exactMode := prefix
+		if prefix == "reg" {
+			exactMode = "registration"
+		}
+		if prefixed && (prefix == "inn" || prefix == "reg") && (mode == "" || mode == "auto" || mode == exactMode) {
+			params.Set("q", number)
+			params.Set("mode", exactMode)
+		}
+	case company.ReadTaxes:
+		if section := params.Get("section"); section == "" || section == "regimes" {
+			params.Del("limit")
+			params.Del("offset")
+		}
+	}
 	result, err := e.Reader.Read(ctx, operation, id, params)
 	if err != nil {
 		return rejection("data_unavailable", "Local data temporarily unavailable")

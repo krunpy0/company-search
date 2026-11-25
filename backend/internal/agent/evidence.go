@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"strconv"
+	"strings"
 
 	"github.com/krunpy0/company-search/backend/internal/tools"
 )
@@ -36,7 +37,62 @@ func newPage(result tools.ToolResult, number int, tool string) (page, error) {
 			p.sources[fmt.Sprintf("%s-%d", provider, number)] = source
 		}
 	}
+	for _, value := range p.sources {
+		source, _ := value.(map[string]any)
+		if source["dataset"] == "rsmp" {
+			source["dataset_name"] = "Единый реестр субъектов малого и среднего предпринимательства"
+		}
+	}
+	if tool == "search_companies" {
+		items, _ := data["items"].([]any)
+		for _, value := range items {
+			item, _ := value.(map[string]any)
+			name, _ := item["name"].(map[string]any)
+			registration, _ := item["registration_evidence"].(map[string]any)
+			if len(registration) > 0 && name["source_ref"] == registration["source_ref"] && name["as_of"] == registration["as_of"] {
+				for _, field := range []string{"document_id", "file", "document_date"} {
+					if name[field] == registration[field] {
+						delete(name, field)
+					}
+				}
+			}
+		}
+	}
+	if tool == "get_company_taxes" && data["state"] == "identity_conflict" {
+		for ref, value := range p.sources {
+			source, _ := value.(map[string]any)
+			if source["dataset"] == "snrip" && source["period"] == data["as_of"] {
+				data["state_evidence"] = map[string]any{"source_ref": ref, "as_of": data["as_of"], "state": data["state"]}
+				break
+			}
+		}
+	}
+	addObservationFields(tool, data)
 	return p, nil
+}
+
+func (p page) registrations(inn string) []string {
+	if (len(inn) != 10 && len(inn) != 12) || strings.Trim(inn, "0123456789") != "" {
+		return nil
+	}
+	data, _ := p.body["data"].(map[string]any)
+	items, _ := data["items"].([]any)
+	var candidates []string
+	for _, value := range items {
+		item, _ := value.(map[string]any)
+		if id, ok := item["id"].(string); ok && item["inn"] == inn && strings.HasPrefix(id, "reg:") {
+			candidates = append(candidates, id)
+		}
+	}
+	return candidates
+}
+
+func (p page) emptySearch() bool {
+	data, _ := p.body["data"].(map[string]any)
+	items, ok := data["items"].([]any)
+	coverage, _ := data["coverage"].(map[string]any)
+	return ok && len(items) == 0 && data["next_cursor"] == nil &&
+		(coverage["dadata"] == "disabled" || coverage["dadata"] == "checked")
 }
 
 func (p page) fit(budget int) ([]byte, map[string]Observation, error) {
