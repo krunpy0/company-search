@@ -1,0 +1,107 @@
+"use client";
+
+import { useEffect, useId, useRef, useState } from "react";
+import type { FormEvent, ReactNode } from "react";
+import { questionDraftKey } from "./product";
+
+const templates = [
+  ["Оценка рисков", "Оцени риски работы с компанией "],
+  ["Анализ конкурента", "Проанализируй конкурента "],
+  ["Проверка бизнеса", "Проверь компанию "],
+];
+
+export function Arrow({ direction = "up" }: { direction?: "up" | "right" }) {
+  return (
+    <svg className={direction === "right" ? "arrow-right" : undefined} aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 20V4m-8 8 8-8 8 8" />
+    </svg>
+  );
+}
+
+export function NoticeButton({ children, title, message, variant = "text" }: {
+  children: ReactNode;
+  title: string;
+  message: string;
+  variant?: "text" | "primary" | "outline";
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+
+  return (
+    <>
+      <button type="button" className={`button button-${variant}`} onClick={() => dialog.current?.showModal()}>
+        {children}
+      </button>
+      <dialog ref={dialog} className="notice" aria-labelledby={titleId}>
+        <h2 id={titleId}>{title}</h2>
+        <p>{message}</p>
+        <form method="dialog">
+          <button className="button button-outline">Закрыть</button>
+        </form>
+      </dialog>
+    </>
+  );
+}
+
+export function QuestionForm() {
+  const field = useRef<HTMLTextAreaElement>(null);
+  const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string }>();
+
+  useEffect(() => {
+    if (!field.current || field.current.value) return;
+    try {
+      field.current.value = sessionStorage.getItem(questionDraftKey) ?? "";
+    } catch {
+      // The form remains usable when browser storage is unavailable.
+    }
+  }, []);
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const question = field.current?.value.trim();
+    if (!question) {
+      setFeedback({ kind: "error", message: "Введите вопрос о компании." });
+      field.current?.focus();
+      return;
+    }
+
+    try {
+      sessionStorage.setItem(questionDraftKey, question);
+      setFeedback({ kind: "success", message: "Черновик сохранён в этой вкладке. Отправка станет доступна после подключения входа." });
+    } catch {
+      setFeedback({ kind: "error", message: "Браузер не смог сохранить черновик. Вопрос остаётся в поле ввода." });
+    }
+  }
+
+  return (
+    <>
+      <form className="question" onSubmit={submit}>
+        <textarea
+          ref={field}
+          id="question"
+          className="field"
+          aria-label="Вопрос о компании"
+          aria-describedby="question-feedback"
+          maxLength={4000}
+          placeholder="Введите ИНН, ОГРН, название компании или ФИО предпринимателя..."
+          onChange={() => setFeedback(undefined)}
+        />
+        <button className="button button-primary send" aria-label="Отправить вопрос"><Arrow /></button>
+      </form>
+      <p id="question-feedback" className={`status ${feedback?.kind ?? ""}`} role="status">{feedback?.message}</p>
+      <div className="templates">
+        <p>Не знаешь с чего начать? Попробуй эти шаблоны:</p>
+        <div>
+          {templates.map(([label, question]) => (
+            <button key={label} type="button" className="button button-primary" onClick={() => {
+              if (!field.current) return;
+              field.current.value = question;
+              field.current.focus();
+              setFeedback(undefined);
+            }}>{label}</button>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
