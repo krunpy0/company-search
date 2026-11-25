@@ -1,5 +1,19 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Go API и сессия
+
+Для входа и регистрации запусти [Go API с PostgreSQL](../backend/README.md), затем фронтенд. Сервер Next.js по умолчанию обращается к `http://127.0.0.1:8080`. Другой адрес Go API задаётся серверной переменной `COMPANY_API_URL`. За прокси задай `COMPANY_APP_ORIGIN` равной внешнему origin фронтенда, включая схему и порт при необходимости, без завершающего слеша.
+
+Для отправки сообщений включи `CHAT_ENABLED=true` в окружении Go API, задай `OPENAI_BASE_URL` и `OPENAI_MODEL`, затем перезапусти Go API. Настройки модели описаны в [README бэкенда](../backend/README.md#api-чата).
+
+После изменения [OpenAPI](../backend/openapi.yaml) выполни из `frontend/`:
+
+```bash
+npm run api:generate
+```
+
+Команда обновляет `src/lib/api.d.ts`. Серверный клиент использует эти типы для работы с Go API.
+
 ## Getting Started
 
 First, run the development server:

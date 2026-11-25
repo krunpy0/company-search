@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { Arrow, NoticeButton, QuestionForm } from "./landing-controls";
 import { productName } from "./product";
 
@@ -84,7 +85,7 @@ export default function Home() {
             <a href="#pricing">Тарифы</a>
             <a href="#business">Для бизнеса</a>
           </div>
-          <a className="button button-primary nav-start" href="#question">Начать</a>
+          <Link className="button button-primary nav-start" href="/chat?start=1" prefetch={false}>Начать</Link>
         </nav>
         <div className="hero-content" id="content" tabIndex={-1}>
           <h1>Узнай всё о контрагенте</h1>
@@ -127,7 +128,7 @@ export default function Home() {
               <tfoot>
                 <tr>
                   <td />
-                  <td><a className="button button-outline" href="#question">Начать бесплатно</a></td>
+                  <td><Link className="button button-outline" href="/chat?start=1" prefetch={false}>Начать бесплатно</Link></td>
                   <td><NoticeButton variant="primary" title="Тариф Pro" message="Цена и условия тарифа ожидают подтверждения. Подключение пока недоступно.">Подключить Pro</NoticeButton></td>
                 </tr>
               </tfoot>
@@ -140,7 +141,7 @@ export default function Home() {
         <div className="footer-inner">
           <section className="closing" id="business" aria-labelledby="closing-heading">
             <h2 id="closing-heading">Узнайте больше о своём контрагенте</h2>
-            <a className="button button-primary" href="#question">Начать анализ <Arrow direction="right" /></a>
+            <Link className="button button-primary" href="/chat?start=1" prefetch={false}>Начать анализ <Arrow direction="right" /></Link>
           </section>
           <div className="footer-links">
             <div>

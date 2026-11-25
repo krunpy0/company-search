@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
+	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/krunpy0/company-search/backend/internal/agent"
 	"github.com/krunpy0/company-search/backend/internal/quota"
 )
@@ -15,7 +18,8 @@ var ErrModelUnavailable = errors.New("model temporarily unavailable")
 
 type Service struct {
 	Store
-	Run agent.Run
+	Run           agent.Run
+	GenerateTitle func(context.Context, string) (string, error)
 }
 
 func (s Service) Send(ctx context.Context, user, id int64, question string) (Turn, error) {
@@ -28,7 +32,7 @@ func (s Service) Send(ctx context.Context, user, id int64, question string) (Tur
 	}
 	ctx, cancel := context.WithTimeout(ctx, TurnTimeout)
 	defer cancel()
-	c, err := s.claim(ctx, user, id, question)
+	c, err := s.claim(ctx, user, id, question, s.GenerateTitle != nil)
 	if err != nil {
 		return Turn{}, err
 	}
@@ -37,6 +41,9 @@ func (s Service) Send(ctx context.Context, user, id int64, question string) (Tur
 		defer stop()
 		s.release(cleanup, user, id, c)
 	}()
+	if c.generateTitle {
+		go s.nameDialogue(context.WithoutCancel(ctx), user, id, c.question)
+	}
 	turns, err := s.recentTurns(ctx, user, id)
 	if err != nil {
 		return Turn{}, err
@@ -59,6 +66,34 @@ func (s Service) Send(ctx context.Context, user, id int64, question string) (Tur
 	saveCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
 	defer stop()
 	return s.finish(saveCtx, user, id, c, question, answer)
+}
+
+func (s Service) nameDialogue(ctx context.Context, user, id int64, question string) {
+	modelCtx, cancel := context.WithTimeoutCause(ctx, 45*time.Second, errors.New("chat title model timed out after 45 seconds"))
+	title, err := s.GenerateTitle(modelCtx, question)
+	cancel()
+	if err != nil {
+		slog.Warn("chat title generation failed", "dialogue_id", id, "error", err)
+		return
+	}
+	if title == "" {
+		slog.Warn("chat title generation failed", "dialogue_id", id, "error", "model returned an empty title")
+		return
+	}
+	saveCtx, stop := context.WithTimeout(ctx, cleanupTimeout)
+	defer stop()
+	if _, err := s.Pool.Exec(saveCtx, `UPDATE accounts.chat_dialogues SET title=$3
+		WHERE user_id=$1 AND id=$2 AND title IS NULL`, user, id, title); err != nil {
+		var dbErr *pgconn.PgError
+		switch {
+		case errors.As(err, &dbErr):
+			slog.Warn("chat title save failed", "dialogue_id", id, "sqlstate", dbErr.Code)
+		case saveCtx.Err() != nil:
+			slog.Warn("chat title save failed", "dialogue_id", id, "error", saveCtx.Err())
+		default:
+			slog.Warn("chat title save failed", "dialogue_id", id, "error", "database unavailable")
+		}
+	}
 }
 
 func priorMessages(turns []contextTurn) []agent.Message {

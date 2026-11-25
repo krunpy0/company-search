@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/krunpy0/company-search/backend/internal/agent"
@@ -33,6 +34,19 @@ func configureChat(pool *pgxpool.Pool, lookup httpapi.PartyLookup) (chat.Service
 		return service, err
 	}
 
+	titleProvider := provider
+	titleKey := strings.TrimSpace(os.Getenv("CHAT_TITLE_OPENAI_API_KEY"))
+	titleURL := strings.TrimSpace(os.Getenv("CHAT_TITLE_OPENAI_BASE_URL"))
+	titleModel := strings.TrimSpace(os.Getenv("CHAT_TITLE_OPENAI_MODEL"))
+	if titleKey != "" && titleURL != "" && titleModel != "" {
+		titleProvider, err = agent.NewChatCompletions(titleURL, titleModel, titleKey)
+		if err != nil {
+			return service, errors.New("invalid CHAT_TITLE_OPENAI_BASE_URL or CHAT_TITLE_OPENAI_MODEL")
+		}
+	}
+	tokenBudget := quota.NewTokenBudget(pool, budget)
+	service.GenerateTitle = titleProvider.WithTokenBudget(tokenBudget).ChatTitle
+
 	reader := company.Reader{Pool: pool}
 	dadata, err := strconv.ParseBool(env("CHAT_DADATA_ENABLED", "false"))
 	if err != nil || (dadata && lookup == nil) {
@@ -52,7 +66,7 @@ func configureChat(pool *pgxpool.Pool, lookup httpapi.PartyLookup) (chat.Service
 	}
 
 	service.Run = agent.Run{
-		Provider: provider.WithTokenBudget(quota.NewTokenBudget(pool, budget)),
+		Provider: provider.WithTokenBudget(tokenBudget),
 		Tools:    tools.Executor{Reader: reader, Events: &events},
 		Steps:    6,
 		Bytes:    16000,

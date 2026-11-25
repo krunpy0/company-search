@@ -1,0 +1,58 @@
+.workspace-main:has(.chat-thread) {
+  display: block;
+  height: 100dvh;
+  padding: 0;
+  background: radial-gradient(ellipse 85% 36% at 50% 108%, #421815 0%, #0a0a0a 100%);
+}
+.workspace-main:has(.chat-thread) .workspace-open { z-index: 1; }
+.chat-thread { display: grid; grid-template-rows: minmax(0, 1fr) auto; height: 100%; }
+.chat-scroll { overflow-y: auto; overscroll-behavior: contain; }
+.chat-column { width: min(calc(100% - 2rem), 34.3125rem); margin-inline: auto; min-width: 0; }
+.chat-turns { display: grid; gap: 2rem; padding-block: 3.25rem 1.75rem; }
+.chat-turn { display: grid; gap: 1.75rem; min-width: 0; }
+.chat-question {
+  justify-self: end;
+  max-width: 90%;
+  padding: .625rem 1.5rem;
+  border-radius: .75rem;
+  background: #131313;
+  white-space: pre-wrap;
+}
+.chat-answer, .chat-question, .chat-wait, .chat-empty {
+  font-size: .8125rem;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.chat-question { line-height: 1.4; }
+.chat-answer p { white-space: pre-wrap; }
+.chat-answer h2 { margin-top: .65rem; font-size: 1.125rem; line-height: 1.3; }
+.chat-answer h2:first-child { margin-top: 0; }
+.chat-paragraph-gap { height: .65rem; }
+.chat-wait, .chat-empty, .chat-partial { color: var(--text-secondary); }
+.chat-partial { margin-top: .75rem; }
+.chat-sources { margin-top: .75rem; color: var(--text-secondary); }
+.chat-sources summary { width: fit-content; cursor: pointer; padding-block: .5rem; }
+.chat-sources li { display: grid; gap: .125rem; padding-block: .375rem; }
+.chat-sources a { width: fit-content; color: var(--text); text-decoration: underline; text-underline-offset: .2em; }
+.chat-older { justify-self: start; }
+.chat-footer { padding-bottom: max(1.4375rem, env(safe-area-inset-bottom)); }
+.chat-footer .workspace-question { width: 100%; margin-top: 0; }
+.chat-footer .workspace-question textarea { min-height: 6.25rem; padding: .75rem 1.125rem 3rem; border-color: transparent; background: var(--surface-input); }
+.chat-footer .workspace-question button { bottom: .75rem; }
+.chat-footer .workspace-error { margin-bottom: .5rem; }
+.workspace-question .workspace-send:hover:not(:disabled) { background: var(--accent-hover); }
+.workspace-question .workspace-send:disabled { opacity: .5; }
+.workspace-dialogues { min-height: 0; overflow: auto; margin-top: .25rem; }
+.workspace-dialogues a, .workspace-dialogues button { display: flex; align-items: center; min-height: 2.2rem; padding: .375rem .5rem; border-radius: .75rem; font-size: .9375rem; }
+.workspace-dialogues a { overflow-wrap: anywhere; }
+.workspace-dialogues a:hover, .workspace-dialogues a[aria-current] { background: #292929; }
+.workspace-intro > p a:hover, .workspace-selected a { text-decoration: underline; text-underline-offset: .2em; }
+@media (max-width: 47.9375rem) {
+  .chat-answer, .chat-question, .chat-wait, .chat-empty { font-size: .9375rem; line-height: 1.55; }
+  .chat-question { padding-inline: .875rem; }
+  .chat-turns { padding-top: 4rem; }
+  .chat-footer .workspace-question textarea { min-height: 6.75rem; padding-bottom: 3.75rem; }
+  .chat-footer { padding-bottom: max(.625rem, env(safe-area-inset-bottom)); }
+  .workspace-dialogues a, .workspace-dialogues button { min-height: var(--touch-target); }
+}
+

@@ -477,6 +477,7 @@ components:
       type: object
       required: [id, created_at, updated_at]
       properties:
+        title: {type: string, maxLength: 80}
         id: {$ref: '#/components/schemas/ChatId'}
         registration: {$ref: '#/components/schemas/ChatRegistration'}
         candidates:

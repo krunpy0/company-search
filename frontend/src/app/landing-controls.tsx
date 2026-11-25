@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import { questionDraftKey } from "./product";
 
 const templates = [
@@ -44,8 +45,9 @@ export function NoticeButton({ children, title, message, variant = "text" }: {
 }
 
 export function QuestionForm() {
+  const router = useRouter();
   const field = useRef<HTMLTextAreaElement>(null);
-  const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string }>();
+  const [feedback, setFeedback] = useState("");
 
   useEffect(() => {
     if (!field.current || field.current.value) return;
@@ -60,16 +62,16 @@ export function QuestionForm() {
     event.preventDefault();
     const question = field.current?.value.trim();
     if (!question) {
-      setFeedback({ kind: "error", message: "Введите вопрос о компании." });
+      setFeedback("Введите вопрос о компании.");
       field.current?.focus();
       return;
     }
 
     try {
       sessionStorage.setItem(questionDraftKey, question);
-      setFeedback({ kind: "success", message: "Черновик сохранён в этой вкладке. Отправка станет доступна после подключения входа." });
+      router.push("/chat?start=1");
     } catch {
-      setFeedback({ kind: "error", message: "Браузер не смог сохранить черновик. Вопрос остаётся в поле ввода." });
+      setFeedback("Браузер не смог сохранить черновик. Вопрос остаётся в поле ввода.");
     }
   }
 
@@ -84,11 +86,11 @@ export function QuestionForm() {
           aria-describedby="question-feedback"
           maxLength={4000}
           placeholder="Введите ИНН, ОГРН, название компании или ФИО предпринимателя..."
-          onChange={() => setFeedback(undefined)}
+          onChange={() => setFeedback("")}
         />
         <button className="button button-primary send" aria-label="Отправить вопрос"><Arrow /></button>
       </form>
-      <p id="question-feedback" className={`status ${feedback?.kind ?? ""}`} role="status">{feedback?.message}</p>
+      <p id="question-feedback" className="status error" role="status">{feedback}</p>
       <div className="templates">
         <p>Не знаешь с чего начать? Попробуй эти шаблоны:</p>
         <div>
@@ -97,7 +99,7 @@ export function QuestionForm() {
               if (!field.current) return;
               field.current.value = question;
               field.current.focus();
-              setFeedback(undefined);
+              setFeedback("");
             }}>{label}</button>
           ))}
         </div>

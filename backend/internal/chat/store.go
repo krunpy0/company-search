@@ -27,6 +27,7 @@ const cleanupTimeout = 3 * time.Second
 type Dialogue struct {
 	ID           int64     `json:"id,string"`
 	Registration *string   `json:"registration,omitempty"`
+	Title        *string   `json:"title,omitempty"`
 	Candidates   []string  `json:"candidates,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
@@ -41,13 +42,13 @@ type Turn struct {
 
 type Store struct{ Pool *pgxpool.Pool }
 
-const dialogueColumns = "id, registration, pending_registrations, created_at, updated_at"
+const dialogueColumns = "id, registration, title, pending_registrations, created_at, updated_at"
 const turnColumns = "id, question, answer, created_at"
 
 func (s Store) Create(ctx context.Context, user int64, registration *string) (Dialogue, error) {
 	var d Dialogue
 	err := s.Pool.QueryRow(ctx, "INSERT INTO accounts.chat_dialogues (user_id, registration) VALUES ($1, $2) RETURNING "+dialogueColumns,
-		user, registration).Scan(&d.ID, &d.Registration, &d.Candidates, &d.CreatedAt, &d.UpdatedAt)
+		user, registration).Scan(&d.ID, &d.Registration, &d.Title, &d.Candidates, &d.CreatedAt, &d.UpdatedAt)
 	return d, err
 }
 
@@ -65,7 +66,7 @@ func (s Store) History(ctx context.Context, user, id, before int64, limit int) (
 	var turns []Turn
 	err := pgx.BeginTxFunc(ctx, s.Pool, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx, "SELECT "+dialogueColumns+" FROM accounts.chat_dialogues WHERE user_id=$1 AND id=$2",
-			user, id).Scan(&d.ID, &d.Registration, &d.Candidates, &d.CreatedAt, &d.UpdatedAt)
+			user, id).Scan(&d.ID, &d.Registration, &d.Title, &d.Candidates, &d.CreatedAt, &d.UpdatedAt)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotFound
 		}
@@ -104,22 +105,25 @@ func (s Store) recentTurns(ctx context.Context, user, id int64) ([]contextTurn, 
 }
 
 type claim struct {
-	lease string
+	lease         string
+	generateTitle bool
 
 	registration *string
 	question     string
 }
 
-func (s Store) claim(ctx context.Context, user, id int64, question string) (claim, error) {
+func (s Store) claim(ctx context.Context, user, id int64, question string, titleEnabled bool) (claim, error) {
 	c := claim{lease: rand.Text(), question: question}
 	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 		var busy bool
 		var pending *string
 		var candidates []string
 		err := tx.QueryRow(ctx, `SELECT registration, pending_question, pending_registrations,
-			COALESCE(lease_until > clock_timestamp(), false)
-			FROM accounts.chat_dialogues WHERE user_id=$1 AND id=$2 FOR UPDATE`, user, id).
-			Scan(&c.registration, &pending, &candidates, &busy)
+			COALESCE(lease_until > clock_timestamp(), false),
+			$3 AND NOT title_attempted AND title IS NULL AND NOT EXISTS (
+				SELECT 1 FROM accounts.chat_turns WHERE dialogue_id=$2)
+			FROM accounts.chat_dialogues WHERE user_id=$1 AND id=$2 FOR UPDATE`, user, id, titleEnabled).
+			Scan(&c.registration, &pending, &candidates, &busy, &c.generateTitle)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotFound
 		}
@@ -148,8 +152,8 @@ func (s Store) claim(ctx context.Context, user, id int64, question string) (clai
 		if err != nil {
 			return err
 		}
-		_, err = tx.Exec(ctx, `UPDATE accounts.chat_dialogues SET lease_id=$3, lease_until=clock_timestamp()+interval '3 minutes'
-			WHERE user_id=$1 AND id=$2`, user, id, c.lease)
+		_, err = tx.Exec(ctx, `UPDATE accounts.chat_dialogues SET lease_id=$3, lease_until=clock_timestamp()+interval '3 minutes',
+			title_attempted=title_attempted OR $4 WHERE user_id=$1 AND id=$2`, user, id, c.lease, c.generateTitle)
 		return err
 	})
 	return c, err

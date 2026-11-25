@@ -66,19 +66,35 @@ func TestChatHTTP(t *testing.T) {
 	blocked := make(chan struct{})
 	resume := make(chan struct{})
 	var observedFollowup atomic.Bool
+	var titleCalls atomic.Int32
+	mainStarted, allowMain := make(chan struct{}), make(chan struct{})
+	var startMain sync.Once
 	refPattern := regexp.MustCompile(`"(?:fns|dadata)-[0-9]+"`)
 	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if failModel.Load() {
 			w.WriteHeader(503)
 			return
 		}
-		var req struct{ Messages []agent.Message }
+		var req struct {
+			Messages []agent.Message
+			Tools    json.RawMessage
+		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Error(err)
 			w.WriteHeader(400)
 			return
 		}
 		last := req.Messages[len(req.Messages)-1]
+		if len(req.Tools) == 0 {
+			titleCalls.Add(1)
+			if last.Content == "Задолженность" {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"«Налоговая задолженность»"}}],"usage":{"total_tokens":30}}`))
+				return
+			}
+			w.WriteHeader(503)
+			return
+		}
 		reply := agent.Message{Role: "assistant"}
 		finish := "stop"
 		if last.Role == "tool" {
@@ -107,6 +123,12 @@ func TestChatHTTP(t *testing.T) {
 				reply.Content = "Долг 999999 рублей."
 				break
 			case "Задолженность":
+				startMain.Do(func() { close(mainStarted) })
+				select {
+				case <-allowMain:
+				case <-r.Context().Done():
+					return
+				}
 				tool, args = "get_company_taxes", `{"id":"`+reg+`","section":"debts"}`
 			case "А уплаченные?":
 				var hasQuestion, hasAnswer bool
@@ -150,7 +172,7 @@ func TestChatHTTP(t *testing.T) {
 	router := func(p *pgxpool.Pool, budget int64) *gin.Engine {
 		r := gin.New()
 		session := RegisterAuth(r, p)
-		RegisterChat(r.Group("", session), chat.Service{Store: chat.Store{Pool: p}, Run: agent.Run{
+		RegisterChat(r.Group("", session), chat.Service{Store: chat.Store{Pool: p}, GenerateTitle: provider.WithTokenBudget(quota.NewTokenBudget(p, budget)).ChatTitle, Run: agent.Run{
 			Provider: provider.WithTokenBudget(quota.NewTokenBudget(p, budget)),
 			Tools:    tools.Executor{Reader: company.Reader{Pool: p, Lookup: lookup}},
 			Steps:    6, Bytes: 16000,
@@ -222,12 +244,38 @@ func TestChatHTTP(t *testing.T) {
 	selected := create(first, "1073906000376")
 	check(send(server, "GET", selected, second, ""), 404, "dialogue_not_found")
 	check(message(server, selected, second, "Задолженность"), 404, "dialogue_not_found")
-	check(message(server, selected, first, "Задолженность"), 201, "221695.72", "2026-10-01", "fns-")
+	firstResponse := make(chan *httptest.ResponseRecorder, 1)
+	go func() { firstResponse <- message(server, selected, first, "Задолженность") }()
+	select {
+	case <-mainStarted:
+	case <-time.After(5 * time.Second):
+		close(allowMain)
+		t.Fatal("answer request did not reach the provider")
+	}
+	var titleVisible bool
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
+		history := send(replica, "GET", selected, first, "")
+		if history.Code == 200 && strings.Contains(history.Body.String(), `"title":"Налоговая задолженность"`) &&
+			strings.Contains(history.Body.String(), `"messages":[]`) {
+			titleVisible = true
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	close(allowMain)
+	check(<-firstResponse, 201, "221695.72", "2026-10-01", "fns-")
+	if !titleVisible {
+		t.Fatal("title did not appear in history while the answer was blocked")
+	}
 	check(message(replica, selected, first, "А уплаченные?"), 201, "2025-12-31", "fns-")
+	if titleCalls.Load() != 1 {
+		t.Fatalf("sent %d title requests, want 1", titleCalls.Load())
+	}
+	check(send(replica, "GET", path, first, ""), 200, `"title":"Налоговая задолженность"`)
 	if !observedFollowup.Load() {
 		t.Fatal("follow-up excluded previous question or local answer")
 	}
-	check(send(replica, "GET", selected+"?limit=1", first, ""), 200, "А уплаченные?", "next_before_id", "reg:1073906000376")
+	check(send(replica, "GET", selected+"?limit=1", first, ""), 200, "А уплаченные?", "next_before_id", "reg:1073906000376", `"title":"Налоговая задолженность"`)
 
 	check(message(server, selected, first, "Профиль и налоги"), 201, "ООО Тестовый реестр", "dadata-", "fns-", "2025-12-31")
 	failRegistry.Store(true)
