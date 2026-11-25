@@ -2,12 +2,64 @@ openapi: 3.1.0
 info:
   title: Company Search
   version: 1.0.0
-  description: Local coverage is limited to published FNS releases. DaData is disabled by default.
+  description: Local coverage is limited to published FNS releases. DaData is disabled by default. External calls count against user and provider budgets. Local reads remain available when external quota is exhausted.
 servers:
   - url: /
     description: API server
-security: []
+security:
+  - bearerAuth: []
 paths:
+  /v1/auth/register:
+    post:
+      operationId: registerUser
+      summary: Register an account with an email address and password.
+      security: []
+      requestBody:
+        $ref: '#/components/requestBodies/Credentials'
+      responses:
+        '201':
+          description: Account created.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RegisteredUser'}
+        '400': {$ref: '#/components/responses/InvalidCredentialsInput'}
+        '409':
+          description: An account with this email address already exists.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '429': {$ref: '#/components/responses/AuthBusy'}
+        '503': {$ref: '#/components/responses/AuthUnavailable'}
+  /v1/auth/login:
+    post:
+      operationId: loginUser
+      summary: Start a session that expires after 24 hours.
+      security: []
+      requestBody:
+        $ref: '#/components/requestBodies/Credentials'
+      responses:
+        '200':
+          description: Session created.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Session'}
+        '400': {$ref: '#/components/responses/InvalidCredentialsInput'}
+        '401':
+          description: Invalid email address or password.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '429': {$ref: '#/components/responses/AuthBusy'}
+        '503': {$ref: '#/components/responses/AuthUnavailable'}
+  /v1/auth/logout:
+    post:
+      operationId: logoutUser
+      summary: Revoke the current session.
+      responses:
+        '204':
+          description: Session revoked.
+        '401': {$ref: '#/components/responses/SessionRequired'}
+        '503': {$ref: '#/components/responses/AuthUnavailable'}
   /v1/companies:
     get:
       operationId: searchCompanies
@@ -45,6 +97,7 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
+        '401': {$ref: '#/components/responses/SessionRequired'}
         '409':
           description: Published releases changed. Restart search without a cursor.
           content:
@@ -56,7 +109,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
         '503':
-          description: Local data unavailable, or exact lookup needs DaData and the provider is unavailable.
+          description: Session data or local data unavailable, or exact lookup needs DaData and the provider call could not complete.
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
@@ -81,6 +134,7 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
+        '401': {$ref: '#/components/responses/SessionRequired'}
         '404':
           description: No matching subject in the checked sources.
           content:
@@ -97,7 +151,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
         '503':
-          description: Local data unavailable, or the subject could not be resolved because DaData is unavailable.
+          description: Session data or local data unavailable, or the subject could not be resolved without DaData.
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
@@ -126,6 +180,7 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
+        '401': {$ref: '#/components/responses/SessionRequired'}
         '404':
           description: No matching subject in published local data.
           content:
@@ -142,7 +197,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
         '503':
-          description: Local data temporarily unavailable.
+          description: Session data or local data temporarily unavailable.
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
@@ -188,6 +243,7 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
+        '401': {$ref: '#/components/responses/SessionRequired'}
         '404':
           description: No matching company in the checked sources.
           content:
@@ -204,7 +260,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
         '503':
-          description: Local data unavailable, or DaData was unavailable while resolving an unknown ID.
+          description: Session data or local data unavailable, or the subject could not be resolved without DaData.
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
@@ -229,6 +285,7 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
+        '401': {$ref: '#/components/responses/SessionRequired'}
         '404':
           description: No matching subject in published local data.
           content:
@@ -245,12 +302,71 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
         '503':
-          description: Local data temporarily unavailable.
+          description: Session data or local data temporarily unavailable.
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  requestBodies:
+    Credentials:
+      required: true
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Credentials'}
+  responses:
+    InvalidCredentialsInput:
+      description: Invalid email address, password or JSON body.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    SessionRequired:
+      description: Bearer session missing, invalid, expired or revoked.
+      headers:
+        WWW-Authenticate:
+          schema: {type: string, const: Bearer}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    AuthUnavailable:
+      description: Account or session data temporarily unavailable.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    AuthBusy:
+      description: The local authentication concurrency limit was reached.
+      headers:
+        Retry-After:
+          schema: {type: integer}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
   schemas:
+    Credentials:
+      type: object
+      required: [email, password]
+      properties:
+        email: {type: string, format: email, maxLength: 254}
+        password:
+          type: string
+          format: password
+          writeOnly: true
+          description: 12 to 72 UTF-8 bytes.
+    RegisteredUser:
+      type: object
+      required: [user_id]
+      properties:
+        user_id: {type: string}
+    Session:
+      type: object
+      required: [access_token, token_type, expires_at]
+      properties:
+        access_token: {type: string}
+        token_type: {type: string, const: Bearer}
+        expires_at: {type: string, format: date-time}
     Error:
       type: object
       required: [error]
@@ -271,7 +387,9 @@ components:
       required: [source, code]
       properties:
         source: {type: string}
-        code: {type: string}
+        code:
+          type: string
+          description: user_external_api_budget_exhausted means the user has used their daily allowance for external API calls.
     Evidence:
       type: object
       required: [source_ref, as_of, document_id, file]

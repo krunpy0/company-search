@@ -17,9 +17,13 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/krunpy0/company-search/backend/internal/dadata"
 	"github.com/krunpy0/company-search/backend/internal/httpapi"
+	"github.com/krunpy0/company-search/backend/migrations"
 )
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	if err := godotenv.Load(); err != nil && !errors.Is(err, os.ErrNotExist) {
 		slog.Error("could not load .env")
 		os.Exit(1)
@@ -27,6 +31,10 @@ func main() {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
 		slog.Error("DATABASE_URL is required")
+		os.Exit(1)
+	}
+	if err := runAutoMigrate(ctx, dsn, migrations.Apply); err != nil {
+		slog.Error("auto-migration failed", "error", err)
 		os.Exit(1)
 	}
 	pool, err := pgxpool.New(context.Background(), dsn)
@@ -57,10 +65,18 @@ func main() {
 		os.Exit(1)
 	}
 	if enabled {
-		budget, _ := strconv.Atoi(os.Getenv("DADATA_DAILY_BUDGET"))
-		client, err := dadata.New(os.Getenv("DADATA_TOKEN"), budget)
+		budget, _ := strconv.Atoi(os.Getenv("EXTERNAL_API_DAILY_BUDGET"))
+		userBudget, _ := strconv.Atoi(env("USER_EXTERNAL_API_DAILY_BUDGET", "5"))
+		// Company reads hold a snapshot connection while calling the provider.
+		quotaPool, err := pgxpool.NewWithConfig(context.Background(), pool.Config())
 		if err != nil {
-			slog.Error("DaData requires DADATA_TOKEN and a positive DADATA_DAILY_BUDGET")
+			slog.Error("could not create quota pool")
+			os.Exit(1)
+		}
+		defer quotaPool.Close()
+		client, err := dadata.New(os.Getenv("DADATA_TOKEN"), budget, quotaPool, userBudget)
+		if err != nil {
+			slog.Error("DaData requires DADATA_TOKEN and positive EXTERNAL_API_DAILY_BUDGET and USER_EXTERNAL_API_DAILY_BUDGET")
 			os.Exit(1)
 		}
 		lookup = client.Lookup
@@ -70,8 +86,12 @@ func main() {
 		slog.Error("DADATA_REGISTRY_DETAILS_ENABLED requires a boolean and DaData must be enabled to use it")
 		os.Exit(1)
 	}
-	httpapi.RegisterCompanies(r, pool, lookup, registryDetails)
-	srv := &http.Server{Addr: env("HTTP_ADDR", ":8080"), Handler: r, ReadHeaderTimeout: 5 * time.Second}
+	session := httpapi.RegisterAuth(r, pool)
+	httpapi.RegisterCompanies(r.Group("", session), pool, lookup, registryDetails)
+	srv := &http.Server{
+		Addr: env("HTTP_ADDR", ":8080"), Handler: r,
+		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second,
+	}
 	go func() {
 		slog.Info("starting HTTP server", "address", srv.Addr)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -79,15 +99,26 @@ func main() {
 			os.Exit(1)
 		}
 	}()
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	<-sig
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	<-ctx.Done()
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := srv.Shutdown(ctx); err != nil {
+	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("shutdown", "error", err)
 	}
 }
+
+func runAutoMigrate(ctx context.Context, dsn string, apply func(context.Context, string) error) error {
+	autoMigrate, err := strconv.ParseBool(env("AUTO_MIGRATE", "true"))
+	if err != nil {
+		return errors.New("invalid AUTO_MIGRATE")
+	}
+	if !autoMigrate {
+		slog.Info("skipping auto-migration", "reason", "AUTO_MIGRATE=false")
+		return nil
+	}
+	return apply(ctx, dsn)
+}
+
 func env(k, d string) string {
 	if v := os.Getenv(k); v != "" {
 		return v

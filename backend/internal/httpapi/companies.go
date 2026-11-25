@@ -11,7 +11,7 @@ import (
 
 type PartyLookup = company.PartyLookup
 
-func RegisterCompanies(r *gin.Engine, pool *pgxpool.Pool, lookup PartyLookup, registryDetails bool) {
+func RegisterCompanies(r gin.IRouter, pool *pgxpool.Pool, lookup PartyLookup, registryDetails bool) {
 	group := r.Group("/v1/companies")
 	// Bound concurrent queries even when PostgreSQL or a broad name search is slow.
 	slots := make(chan struct{}, 8)
