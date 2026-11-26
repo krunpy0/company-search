@@ -14,6 +14,7 @@ type WorkspaceDialogProps = {
 
 export function WorkspaceDialog({ open, onClose, title, description, className, children }: WorkspaceDialogProps) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const backdropPress = useRef(false);
   const titleId = useId();
   const descriptionId = useId();
 
@@ -25,12 +26,31 @@ export function WorkspaceDialog({ open, onClose, title, description, className, 
     return () => element.close();
   }, [open]);
 
+  function isOutsideDialog(clientX: number, clientY: number) {
+    const rect = dialog.current?.getBoundingClientRect();
+    if (!rect) return false;
+    return clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom;
+  }
+
   return (
     <dialog
       ref={dialog}
       className={className ? `workspace-dialog ${className}` : "workspace-dialog"}
       aria-labelledby={titleId}
       aria-describedby={description ? descriptionId : undefined}
+      onPointerDown={(event) => {
+        backdropPress.current = event.target === event.currentTarget && isOutsideDialog(event.clientX, event.clientY);
+      }}
+      onPointerCancel={() => {
+        backdropPress.current = false;
+      }}
+      onClick={(event) => {
+        const shouldClose = backdropPress.current;
+        backdropPress.current = false;
+        if (shouldClose && event.target === event.currentTarget && isOutsideDialog(event.clientX, event.clientY)) {
+          onClose();
+        }
+      }}
       onCancel={(event) => {
         event.preventDefault();
         onClose();

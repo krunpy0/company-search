@@ -35,6 +35,13 @@ func accountPassword(password string) bool {
 }
 
 func RegisterAuth(r *gin.Engine, pool *pgxpool.Pool) gin.HandlerFunc {
+	return RegisterAuthWithLimiters(r, pool, nil)
+}
+
+func RegisterAuthWithLimiters(r *gin.Engine, pool *pgxpool.Pool, limiters *RateLimiters) gin.HandlerFunc {
+	if limiters == nil {
+		limiters = NewRateLimiters(DefaultRateLimitConfig())
+	}
 	dummyHash, err := bcrypt.GenerateFromPassword([]byte(rand.Text()), passwordCost)
 	if err != nil {
 		panic(err)
@@ -69,7 +76,7 @@ func RegisterAuth(r *gin.Engine, pool *pgxpool.Pool) gin.HandlerFunc {
 			fail(c, 429, "busy", "Too many concurrent authentication requests")
 		}
 	}
-	group.POST("/register", bounded, func(c *gin.Context) {
+	group.POST("/register", limiters.Auth(), bounded, func(c *gin.Context) {
 		email, password, ok := credentials(c)
 		if !ok {
 			return
@@ -92,7 +99,7 @@ func RegisterAuth(r *gin.Engine, pool *pgxpool.Pool) gin.HandlerFunc {
 			c.JSON(201, gin.H{"user_id": strconv.FormatInt(id, 10)})
 		}
 	})
-	group.POST("/login", bounded, func(c *gin.Context) {
+	group.POST("/login", limiters.Auth(), bounded, func(c *gin.Context) {
 		email, password, ok := credentials(c)
 		if !ok {
 			return
@@ -158,7 +165,7 @@ func RegisterAuth(r *gin.Engine, pool *pgxpool.Pool) gin.HandlerFunc {
 			c.Set(sessionHashKey, hash)
 		}
 	}
-	group.POST("/logout", func(c *gin.Context) {
+	group.POST("/logout", limiters.API(), func(c *gin.Context) {
 		session(c, `DELETE FROM accounts.sessions WHERE token_hash=$1 AND expires_at > statement_timestamp() RETURNING user_id`)
 		if !c.IsAborted() {
 			c.Status(204)
@@ -167,7 +174,7 @@ func RegisterAuth(r *gin.Engine, pool *pgxpool.Pool) gin.HandlerFunc {
 	requireSession := func(c *gin.Context) {
 		session(c, `SELECT user_id FROM accounts.sessions WHERE token_hash=$1 AND expires_at > statement_timestamp()`)
 	}
-	registerAccount(r.Group("/v1/account", requireSession), pool, bounded)
+	registerAccount(r.Group("/v1/account", requireSession, limiters.API()), pool, bounded)
 	return requireSession
 }
 

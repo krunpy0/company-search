@@ -44,6 +44,11 @@ func main() {
 	}
 	defer pool.Close()
 	r := gin.New()
+	limiters, err := configureRateLimiting(r, os.Getenv)
+	if err != nil {
+		slog.Error("invalid rate limit or proxy configuration", "error", err)
+		os.Exit(1)
+	}
 	r.Use(gin.CustomRecoveryWithWriter(io.Discard, func(c *gin.Context, _ any) {
 		slog.Error("request panic", "route", c.FullPath())
 		c.AbortWithStatus(http.StatusInternalServerError)
@@ -58,6 +63,7 @@ func main() {
 		}
 		c.Status(204)
 	})
+	r.Use(limiters.IP())
 	var lookup httpapi.PartyLookup
 	enabled, err := strconv.ParseBool(env("DADATA_ENABLED", "false"))
 	if err != nil {
@@ -86,15 +92,15 @@ func main() {
 		slog.Error("DADATA_REGISTRY_DETAILS_ENABLED requires a boolean and DaData must be enabled to use it")
 		os.Exit(1)
 	}
-	session := httpapi.RegisterAuth(r, pool)
+	session := httpapi.RegisterAuthWithLimiters(r, pool, limiters)
 	authenticated := r.Group("", session)
-	httpapi.RegisterCompanies(authenticated, pool, lookup, registryDetails)
+	httpapi.RegisterCompaniesWithLimiters(authenticated, pool, lookup, registryDetails, limiters)
 	chatService, err := configureChat(pool, lookup)
 	if err != nil {
 		slog.Error("invalid chat configuration", "error", err)
 		os.Exit(1)
 	}
-	httpapi.RegisterChat(authenticated, chatService)
+	httpapi.RegisterChatWithLimiters(authenticated, chatService, limiters)
 	srv := &http.Server{
 		Addr: env("HTTP_ADDR", ":8080"), Handler: r,
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second,
@@ -124,6 +130,21 @@ func runAutoMigrate(ctx context.Context, dsn string, apply func(context.Context,
 		return nil
 	}
 	return apply(ctx, dsn)
+}
+
+func configureRateLimiting(r *gin.Engine, getenv func(string) string) (*httpapi.RateLimiters, error) {
+	proxies, err := httpapi.ParseTrustedProxies(getenv("TRUSTED_PROXIES"))
+	if err != nil {
+		return nil, err
+	}
+	if err := r.SetTrustedProxies(proxies); err != nil {
+		return nil, err
+	}
+	cfg, err := httpapi.RateLimitConfigFromEnv(getenv)
+	if err != nil {
+		return nil, err
+	}
+	return httpapi.NewRateLimiters(cfg), nil
 }
 
 func env(k, d string) string {

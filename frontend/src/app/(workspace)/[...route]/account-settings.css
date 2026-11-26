@@ -1,15 +1,12 @@
 .workspace-dialog.account-settings {
-  inset: 0 0 0 auto;
-  inline-size: min(100%, 40rem);
-  block-size: 100%;
-  max-inline-size: 100%;
-  max-block-size: 100dvh;
-  margin: 0;
-  padding: clamp(1.25rem, 3.5vw, 2rem);
+  inline-size: min(calc(100% - 1.5rem), 42rem);
+  max-block-size: min(44rem, calc(100dvh - 2rem));
+  margin: auto;
+  padding: clamp(1.25rem, 3vw, 2rem);
   background: var(--surface-overlay);
-  border-width: 0 0 0 1px;
-  border-radius: 0;
-  box-shadow: -16px 0 48px rgb(0 0 0 / 55%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 24px 64px rgb(0 0 0 / 60%);
   scrollbar-gutter: stable;
 }
 
@@ -289,8 +286,9 @@
 
 @media (max-width: 34rem) {
   .workspace-dialog.account-settings {
+    inline-size: calc(100% - 1rem);
+    max-block-size: calc(100dvh - 1.5rem);
     padding: 1rem;
-    border-inline-start: 0;
   }
 
   .account-setting-row {

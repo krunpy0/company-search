@@ -12,11 +12,19 @@ import (
 type PartyLookup = company.PartyLookup
 
 func RegisterCompanies(r gin.IRouter, pool *pgxpool.Pool, lookup PartyLookup, registryDetails bool) {
+	RegisterCompaniesWithLimiters(r, pool, lookup, registryDetails, nil)
+}
+
+func RegisterCompaniesWithLimiters(r gin.IRouter, pool *pgxpool.Pool, lookup PartyLookup, registryDetails bool, limiters *RateLimiters) {
+	if limiters == nil {
+		limiters = NewRateLimiters(DefaultRateLimitConfig())
+	}
 	group := r.Group("/v1/companies")
 	// Bound concurrent queries even when PostgreSQL or a broad name search is slow.
 	slots := make(chan struct{}, 8)
 	group.Use(func(c *gin.Context) {
 		c.Header("Cache-Control", "no-store")
+	}, limiters.API(), func(c *gin.Context) {
 		select {
 		case slots <- struct{}{}:
 			defer func() { <-slots }()

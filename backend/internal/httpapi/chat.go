@@ -19,11 +19,18 @@ import (
 var chatRegistration = regexp.MustCompile(`^(reg:)?([0-9]{13}|[0-9]{15})$`)
 
 func RegisterChat(r gin.IRouter, service chat.Service) {
+	RegisterChatWithLimiters(r, service, nil)
+}
+
+func RegisterChatWithLimiters(r gin.IRouter, service chat.Service, limiters *RateLimiters) {
+	if limiters == nil {
+		limiters = NewRateLimiters(DefaultRateLimitConfig())
+	}
 	group := r.Group("/v1/chat/dialogues", func(c *gin.Context) {
 		if _, ok := quota.UserID(c.Request.Context()); !ok {
 			rejectSession(c)
 		}
-	})
+	}, limiters.API())
 	registerChatManagement(group, service.Store)
 	group.POST("", func(c *gin.Context) {
 		var input struct {
@@ -86,7 +93,7 @@ func RegisterChat(r gin.IRouter, service chat.Service) {
 		c.JSON(200, response)
 	})
 	slots := make(chan struct{}, 8)
-	group.POST("/:id/messages", func(c *gin.Context) {
+	group.POST("/:id/messages", limiters.Chat(), func(c *gin.Context) {
 		id, ok := chatID(c)
 		if !ok {
 			return

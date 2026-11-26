@@ -12,6 +12,8 @@ go run ./cmd/api
 
 При повторном запуске с тем же томом PostgreSQL используй пароль, с которым том был создан. `HTTP_ADDR` задаёт адрес сервера, по умолчанию `:8080`. `sslmode=disable` подходит для локального стенда. По умолчанию `./cmd/api` применяет встроенные миграции при старте; чтобы отключить автомиграцию (например, при запуске под ролью `company_api`), задай `AUTO_MIGRATE=false`.
 
+Для защиты от частых запросов в `./cmd/api` встроен token-bucket rate limiter (маршруты `/healthz` и `/readyz` не ограничиваются). По умолчанию включён (`RATE_LIMIT_ENABLED=true`): общий лимит по IP на `/v1/*` (`RATE_LIMIT_IP_RPM=240`, `RATE_LIMIT_IP_BURST=120`), строгий лимит по IP на `/v1/auth/register` и `/v1/auth/login` (`RATE_LIMIT_AUTH_RPM=10`, `RATE_LIMIT_AUTH_BURST=15`), лимит по `user_id` для авторизованных маршрутов (`/v1/account/*`, `/v1/companies/*`, `/v1/chat/dialogues/*`, `/v1/auth/logout`: `RATE_LIMIT_API_RPM=120`, `RATE_LIMIT_API_BURST=60`) и отдельный лимит на отправку сообщений чата (`RATE_LIMIT_CHAT_RPM=20`, `RATE_LIMIT_CHAT_BURST=10`). Максимальное число отслеживаемых ключей на уровень задаётся `RATE_LIMIT_MAX_ENTRIES` (по умолчанию `16384`). При превышении API отвечает `429 rate_limited` с заголовками `Retry-After` и `X-RateLimit-*`. По умолчанию заголовки `X-Forwarded-For` / `X-Real-IP` не доверяются; при работе за обратным прокси укажи доверенные адреса или подсети через `TRUSTED_PROXIES` (через запятую, например `127.0.0.1,::1`).
+
 После запуска оба маршрута возвращают `204`. При остановленной PostgreSQL `/readyz` возвращает `503`, а `/healthz` продолжает возвращать `204`.
 
 ```powershell

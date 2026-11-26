@@ -59,6 +59,7 @@ paths:
         '204':
           description: Session revoked.
         '401': {$ref: '#/components/responses/SessionRequired'}
+        '429': {$ref: '#/components/responses/RateLimited'}
         '503': {$ref: '#/components/responses/AuthUnavailable'}
   /v1/account/profile:
     get:
@@ -67,6 +68,7 @@ paths:
       responses:
         '200': {$ref: '#/components/responses/AccountProfile'}
         '401': {$ref: '#/components/responses/SessionRequired'}
+        '429': {$ref: '#/components/responses/RateLimited'}
         '503': {$ref: '#/components/responses/AuthUnavailable'}
     patch:
       operationId: updateAccountProfile
@@ -118,6 +120,7 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
+        '429': {$ref: '#/components/responses/RateLimited'}
         '503': {$ref: '#/components/responses/AuthUnavailable'}
     put:
       operationId: uploadAccountAvatar
@@ -152,6 +155,7 @@ paths:
         '204':
           description: Account has no saved avatar.
         '401': {$ref: '#/components/responses/SessionRequired'}
+        '429': {$ref: '#/components/responses/RateLimited'}
         '503': {$ref: '#/components/responses/AuthUnavailable'}
   /v1/account/password:
     post:
@@ -211,6 +215,7 @@ paths:
               schema: {$ref: '#/components/schemas/ChatDialoguePage'}
         '400': {$ref: '#/components/responses/ChatInvalidInput'}
         '401': {$ref: '#/components/responses/SessionRequired'}
+        '429': {$ref: '#/components/responses/RateLimited'}
         '503': {$ref: '#/components/responses/ChatUnavailable'}
     post:
       operationId: createChatDialogue
@@ -235,6 +240,7 @@ paths:
               schema: {$ref: '#/components/schemas/ChatDialogue'}
         '400': {$ref: '#/components/responses/ChatInvalidInput'}
         '401': {$ref: '#/components/responses/SessionRequired'}
+        '429': {$ref: '#/components/responses/RateLimited'}
         '503': {$ref: '#/components/responses/ChatUnavailable'}
     delete:
       operationId: clearChatHistory
@@ -244,6 +250,7 @@ paths:
         '204':
           description: History cleared.
         '401': {$ref: '#/components/responses/SessionRequired'}
+        '429': {$ref: '#/components/responses/RateLimited'}
         '503': {$ref: '#/components/responses/ChatUnavailable'}
   /v1/chat/dialogues/search:
     get:
@@ -269,6 +276,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
         '401': {$ref: '#/components/responses/SessionRequired'}
+        '429': {$ref: '#/components/responses/RateLimited'}
         '503': {$ref: '#/components/responses/ChatUnavailable'}
   /v1/chat/dialogues/{id}:
     parameters:
@@ -301,6 +309,7 @@ paths:
               schema: {$ref: '#/components/schemas/Error'}
         '401': {$ref: '#/components/responses/SessionRequired'}
         '404': {$ref: '#/components/responses/ChatNotFound'}
+        '429': {$ref: '#/components/responses/RateLimited'}
         '503': {$ref: '#/components/responses/ChatUnavailable'}
     delete:
       operationId: deleteChatDialogue
@@ -311,6 +320,7 @@ paths:
         '400': {$ref: '#/components/responses/ChatInvalidInput'}
         '401': {$ref: '#/components/responses/SessionRequired'}
         '404': {$ref: '#/components/responses/ChatNotFound'}
+        '429': {$ref: '#/components/responses/RateLimited'}
         '503': {$ref: '#/components/responses/ChatUnavailable'}
   /v1/chat/dialogues/{id}/messages:
     parameters:
@@ -333,6 +343,7 @@ paths:
         '400': {$ref: '#/components/responses/ChatInvalidInput'}
         '401': {$ref: '#/components/responses/SessionRequired'}
         '404': {$ref: '#/components/responses/ChatNotFound'}
+        '429': {$ref: '#/components/responses/RateLimited'}
         '503': {$ref: '#/components/responses/ChatUnavailable'}
     post:
       operationId: sendChatMessage
@@ -362,7 +373,10 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
         '429':
-          description: Message budget, token budget or server concurrency limit reached (message_budget_exhausted, token_budget_exhausted or busy).
+          description: Rate limit, message budget, token budget or server concurrency limit reached (rate_limited, message_budget_exhausted, token_budget_exhausted or busy).
+          headers:
+            Retry-After:
+              schema: {type: integer}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
@@ -412,7 +426,10 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
         '429':
-          description: The local request concurrency limit was reached.
+          description: The local rate limit or request concurrency limit was reached (rate_limited or busy).
+          headers:
+            Retry-After:
+              schema: {type: integer}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
@@ -454,7 +471,10 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
         '429':
-          description: The local request concurrency limit was reached.
+          description: The local rate limit or request concurrency limit was reached (rate_limited or busy).
+          headers:
+            Retry-After:
+              schema: {type: integer}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
@@ -500,7 +520,10 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
         '429':
-          description: The local request concurrency limit was reached.
+          description: The local rate limit or request concurrency limit was reached (rate_limited or busy).
+          headers:
+            Retry-After:
+              schema: {type: integer}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
@@ -564,7 +587,10 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
         '429':
-          description: The local request concurrency limit was reached.
+          description: The local rate limit or request concurrency limit was reached (rate_limited or busy).
+          headers:
+            Retry-After:
+              schema: {type: integer}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
@@ -606,7 +632,10 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
         '429':
-          description: The local request concurrency limit was reached.
+          description: The local rate limit or request concurrency limit was reached (rate_limited or busy).
+          headers:
+            Retry-After:
+              schema: {type: integer}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
@@ -686,9 +715,23 @@ components:
         application/json:
           schema: {$ref: '#/components/schemas/Error'}
     AuthBusy:
-      description: The local authentication concurrency limit was reached.
+      description: The local authentication rate limit or concurrency limit was reached (rate_limited or busy).
       headers:
         Retry-After:
+          schema: {type: integer}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    RateLimited:
+      description: Too many requests for the current rate limit window (rate_limited).
+      headers:
+        Retry-After:
+          schema: {type: integer}
+        X-RateLimit-Limit:
+          schema: {type: integer}
+        X-RateLimit-Remaining:
+          schema: {type: integer}
+        X-RateLimit-Reset:
           schema: {type: integer}
       content:
         application/json:
