@@ -1,0 +1,86 @@
+:root:has(.workspace-dialog[open]) {
+  overflow: hidden;
+}
+
+.workspace-dialog {
+  --accent-action: #c9282f;
+  inline-size: min(calc(100% - 1.5rem), var(--workspace-dialog-width, 34rem));
+  max-block-size: calc(100dvh - 1.5rem);
+  margin: auto;
+  padding: clamp(1rem, 4vw, 1.5rem);
+  overflow: auto;
+  overscroll-behavior: contain;
+  color: var(--text);
+  background: var(--surface-overlay, #151515);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  font: inherit;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.workspace-dialog::backdrop {
+  background: rgb(0 0 0 / 72%);
+}
+
+.workspace-dialog-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: .75rem;
+}
+
+.workspace-dialog-heading h2 {
+  align-self: center;
+  font-size: 1.25rem;
+  line-height: 1.2;
+  font-weight: 600;
+}
+
+.workspace-dialog-close {
+  display: grid;
+  place-items: center;
+  inline-size: var(--touch-target);
+  block-size: var(--touch-target);
+  padding: 0;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 0;
+  border-radius: .75rem;
+}
+
+.workspace-dialog-close:hover {
+  color: var(--text);
+  background: var(--surface-hover, #2b2b2b);
+}
+
+.workspace-dialog-close svg {
+  inline-size: 1.25rem;
+  block-size: 1.25rem;
+}
+
+.workspace-dialog-description {
+  margin-block-start: .5rem;
+  color: var(--text-secondary);
+}
+
+.workspace-dialog-content {
+  margin-block-start: 1rem;
+}
+
+.workspace-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: .5rem;
+  margin-block-start: 1.25rem;
+}
+
+.workspace-dialog .button:disabled {
+  cursor: default;
+  opacity: .5;
+}
+
+.workspace-dialog .button-primary:disabled:hover {
+  background: var(--accent-action);
+}

@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { authMessage, authMessages } from "@/lib/auth-feedback";
 import { productName, questionDraftKey } from "../../product";
+import { WorkspaceDialog } from "../../workspace-dialog";
 import { companyIdentifier } from "./company-data";
 import { Chat } from "./chat";
 import { chatApi, readChat, type Dialogue } from "./chat-api";
@@ -25,8 +26,7 @@ function Icon({ name }: { name: "search" | "panel" | "plus" | "account" }) {
 }
 
 function Sidebar({ close, history, onNewChat }: { close: () => void; history: React.ReactNode; onNewChat?: () => void }) {
-  const settings = useRef<HTMLDialogElement>(null);
-  const settingsTitle = useId();
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
 
@@ -60,16 +60,21 @@ function Sidebar({ close, history, onNewChat }: { close: () => void; history: Re
       <details className="workspace-profile">
         <summary><span className="workspace-avatar"><Icon name="account" /></span>Аккаунт</summary>
         <div className="workspace-profile-actions">
-          <button className="button button-text" onClick={() => settings.current?.showModal()}>Настройки</button>
+          <button type="button" className="button button-text" aria-haspopup="dialog" onClick={() => setSettingsOpen(true)}>Настройки</button>
           <button className="button button-text" disabled={pending} onClick={logout}>{pending ? "Выходим…" : "Выйти"}</button>
           {error && <p className="workspace-error" role="alert">{error}</p>}
         </div>
       </details>
-      <dialog ref={settings} className="notice" aria-labelledby={settingsTitle}>
-        <h2 id={settingsTitle}>Настройки</h2>
-        <p>Настройки аккаунта пока недоступны.</p>
-        <form method="dialog"><button className="button button-outline">Закрыть</button></form>
-      </dialog>
+      <WorkspaceDialog
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        title="Настройки"
+        description="Настройки аккаунта пока недоступны."
+      >
+        <div className="workspace-dialog-actions">
+          <button type="button" className="button button-outline" onClick={() => setSettingsOpen(false)}>Закрыть</button>
+        </div>
+      </WorkspaceDialog>
     </>
   );
 }
