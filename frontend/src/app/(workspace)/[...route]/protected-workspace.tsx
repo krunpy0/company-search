@@ -40,7 +40,7 @@ export async function ProtectedWorkspace({ section, params, searchParams }: Work
   if (section === "companies") {
     const token = (await cookies()).get(sessionCookie)?.value;
     const api = backend(token);
-    return <Workspace>
+    return <Workspace section="companies">
       <Suspense key={JSON.stringify([route, query])} fallback={<div className="company-content" role="status">Загружаем данные…</div>}>
         {id ? <CompanyCard api={api} id={id} section={companyTab ?? "overview"} query={query} /> : <CompanySearch api={api} query={query} />}
       </Suspense>
@@ -48,6 +48,6 @@ export async function ProtectedWorkspace({ section, params, searchParams }: Work
   }
 
   const company = typeof query.company === "string" && isRegistration(query.company) ? query.company : undefined;
-  return <Workspace key={id ?? company ?? "new-chat"} chat={{ id, company }} />;
+  return <Workspace key={id ?? company ?? "new-chat"} section="chat" chat={{ id, company }} />;
 }
 

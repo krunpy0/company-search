@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { FeedbackDialog } from "@/app/feedback-dialog";
 import { authMessage, authMessages } from "@/lib/auth-feedback";
 import { productName, questionDraftKey } from "../../product";
@@ -13,12 +14,13 @@ import { DialogueRow, HistoryActionDialog, HistorySearchDialog, type HistoryActi
 import "./chat.css";
 import "./workspace.css";
 
-function Icon({ name }: { name: "search" | "panel" | "plus" | "account" }) {
+function Icon({ name }: { name: "search" | "panel" | "plus" | "account" | "companies" }) {
   const shapes = {
     search: <><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4 4" /></>,
     panel: <><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 3v18" /></>,
     plus: <path d="M12 5v14M5 12h14" />,
     account: <><circle cx="12" cy="8" r="3" /><path d="M6 19v-1a6 6 0 0 1 12 0v1" /></>,
+    companies: <><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M9 7h1m4 0h1M9 11h1m4 0h1M9 15h1m4 0h1M10 21v-3a2 2 0 0 1 4 0v3" /></>,
   };
   return (
     <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
@@ -37,12 +39,14 @@ function clampSidebarWidth(value: number) {
   return Math.round(Math.min(maxSidebarWidth, Math.max(minSidebarWidth, value)));
 }
 
-function Sidebar({ close, history, profile, avatarVersion, onNavigate, onSearch, onSettings, onFeedback }: {
+function Sidebar({ close, history, profile, avatarVersion, section, onNavigate, onNewChat, onSearch, onSettings, onFeedback }: {
   close: () => void;
   history: React.ReactNode;
   profile?: AccountProfile;
   avatarVersion: number;
+  section?: "chat" | "companies";
   onNavigate: () => void;
+  onNewChat: () => void;
   onSearch: () => void;
   onSettings: () => void;
   onFeedback: () => void;
@@ -101,12 +105,16 @@ function Sidebar({ close, history, profile, avatarVersion, onNavigate, onSearch,
   return (
     <>
       <div className="workspace-sidebar-head">
-        <Link href="/">{productName}</Link>
+        <Link href="/landing" prefetch={false} onNavigate={onNavigate}>{productName}</Link>
         <button className="workspace-icon workspace-search" type="button" aria-label="Поиск по истории" title="Поиск по истории"
           aria-haspopup="dialog" onClick={onSearch}><Icon name="search" /></button>
         <button className="workspace-icon" aria-label="Скрыть боковую панель" onClick={close}><Icon name="panel" /></button>
       </div>
-      <Link className="button workspace-new" href="/chat" prefetch={false} onNavigate={onNavigate}><Icon name="plus" />Новый чат</Link>
+      <Link className="button workspace-new" href="/chat" prefetch={false} onNavigate={onNewChat}><Icon name="plus" />Новый чат</Link>
+      <Link className="button workspace-companies" href="/companies" prefetch={false}
+        aria-current={section === "companies" ? "page" : undefined} onNavigate={onNavigate}>
+        <Icon name="companies" />Поиск компаний
+      </Link>
       <p className="workspace-history">Ваши чаты</p>
       {history}
       <details className="workspace-profile" ref={profileMenu}>
@@ -117,7 +125,10 @@ function Sidebar({ close, history, profile, avatarVersion, onNavigate, onSearch,
               ? <img src={avatarVersion ? `${avatarUrl}?v=${avatarVersion}` : avatarUrl} alt="" />
               : profileInitial ? <span aria-hidden="true">{profileInitial}</span> : <Icon name="account" />}
           </span>
-          <span className="workspace-profile-name" title={profileLabel}>{profileLabel}</span>
+          <span className="workspace-profile-info">
+            <span className="workspace-profile-name" title={profileLabel}>{profileLabel}</span>
+            <span className="workspace-profile-plan">Бесплатно · 5 запросов/день</span>
+          </span>
         </summary>
         <div className="workspace-profile-actions">
           <button type="button" className="button button-text" aria-haspopup="dialog" onClick={() => { closeProfileMenu(); onSettings(); }}>Настройки</button>
@@ -141,7 +152,8 @@ function mergeDialogues(current: Dialogue[], loaded: Dialogue[], edits: Readonly
   return [...byId.values()].sort((a, b) => b.id.length - a.id.length || b.id.localeCompare(a.id));
 }
 
-export function Workspace({ chat, children }: {
+export function Workspace({ section, chat, children }: {
+  section?: "chat" | "companies";
   chat?: { id?: string; company?: string };
   children?: React.ReactNode;
 }) {
@@ -157,7 +169,10 @@ export function Workspace({ chat, children }: {
   const [next, setNext] = useState<string>();
   const [listError, setListError] = useState(false);
   const [listing, setListing] = useState(true);
+  const pathname = usePathname();
   const [createdId, setCreatedId] = useState<string>();
+  const [chatSession, setChatSession] = useState(0);
+  const [prevPathname, setPrevPathname] = useState(pathname);
   const [historyRevision, setHistoryRevision] = useState(0);
   const [profile, setProfile] = useState<AccountProfile>();
   const [avatarVersion, setAvatarVersion] = useState(0);
@@ -241,6 +256,25 @@ export function Workspace({ chat, children }: {
 
   const currentId = chat?.id ?? createdId;
   const closeDrawer = () => drawer.current?.close();
+
+  if (pathname !== prevPathname) {
+    setPrevPathname(pathname);
+    if (section === "chat" && pathname === "/chat" && !chat?.id && !chat?.company && createdId) {
+      setCreatedId(undefined);
+      setChatSession((value) => value + 1);
+    }
+  }
+
+  function startNewChat() {
+    closeDrawer();
+    if (createdId) {
+      try { sessionStorage.removeItem(questionDraftKey); } catch { /* Storage may be disabled. */ }
+    }
+    if (section === "chat" && !chat?.id) {
+      setCreatedId(undefined);
+      setChatSession((value) => value + 1);
+    }
+  }
 
   function renameDialogue(dialogue: Dialogue) {
     if (dialogue.title) titleEdits.current.set(dialogue.id, dialogue.title);
@@ -378,7 +412,7 @@ export function Workspace({ chat, children }: {
   }
 
   const sidebar = {
-    history, profile, avatarVersion, onNavigate: closeDrawer, onSearch: () => setSearchOpen(true),
+    history, profile, avatarVersion, section, onNavigate: closeDrawer, onNewChat: startNewChat, onSearch: () => setSearchOpen(true),
     onSettings: () => setSettingsOpen(true), onFeedback: () => setFeedbackOpen(true),
   };
 
@@ -411,7 +445,15 @@ export function Workspace({ chat, children }: {
           window.requestAnimationFrame(() => root.current?.querySelector<HTMLButtonElement>("aside .workspace-search")?.focus());
         }}><Icon name="panel" /></button>
         <button className="workspace-icon workspace-open workspace-open-mobile" aria-label="Показать боковую панель" onClick={() => drawer.current?.showModal()}><Icon name="panel" /></button>
-        {chat ? <Chat initialId={chat.id} company={chat.company} onDialogue={addDialogue} /> : children}
+        {chat ? (
+          <Chat
+            key={chat.id ?? chat.company ?? `new-${chatSession}`}
+            initialId={chat.id}
+            company={chat.company}
+            onDialogue={addDialogue}
+            onNewChat={startNewChat}
+          />
+        ) : children}
       </main>
       <HistorySearchDialog open={searchOpen} revision={historyRevision} onClose={() => setSearchOpen(false)} onNavigate={() => {
         setSearchOpen(false);

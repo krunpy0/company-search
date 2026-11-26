@@ -4,6 +4,7 @@ import { backend } from "@/lib/backend";
 import type { Readable } from "openapi-typescript-helpers";
 import type { components } from "@/lib/api";
 import { companyIdentifier, companyPath, companyLabels, isCompanyId, isRegistration, taxLabels } from "./company-data";
+import { CompanyResultLink, CompanyTitleHeading, CopyValue } from "./company-controls";
 import "./companies.css";
 
 type Schema = { [K in keyof components["schemas"]]: Readable<components["schemas"][K]> };
@@ -79,7 +80,7 @@ function Warnings({ warnings, coverage }: { warnings: Schema["Warning"][]; cover
   </ul>;
 }
 
-function Failure({ error, retry }: { error?: Schema["Error"]; retry: string }) {
+function Failure({ error, retry, hideWarnings = false }: { error?: Schema["Error"]; retry: string; hideWarnings?: boolean }) {
   const code = error?.error.code;
   const candidates = error?.error.candidates?.filter(isCompanyId) ?? [];
   const title = code === "company_not_found" ? "Компания не найдена"
@@ -91,7 +92,7 @@ function Failure({ error, retry }: { error?: Schema["Error"]; retry: string }) {
 
   return <div className="company-empty">
     <h2>{title}</h2>
-    <Warnings warnings={error?.warnings ?? []} />
+    {!hideWarnings && <Warnings warnings={error?.warnings ?? []} />}
     {candidates.length > 0 && <ul className="company-list">
       {candidates.map((id) => <li key={id}><Link href={companyPath(id)} prefetch={false}>{companyIdentifier(id)}</Link></li>)}
     </ul>}
@@ -125,6 +126,15 @@ export async function CompanySearch({ api, query }: { api: Api; query: Query }) 
         placeholder="Например, 7707083893" defaultValue={q} required maxLength={200} />
       <button className="button button-primary" type="submit">Найти</button>
     </form>
+    {!q && <div className="company-hints">
+      <div className="company-examples">
+        <span>Попробуйте:</span>
+        <Link href="/companies?q=7707083893" prefetch={false}>7707083893</Link>
+        <Link href="/companies?q=%D0%A1%D0%B1%D0%B5%D1%80%D0%B1%D0%B0%D0%BD%D0%BA" prefetch={false}>Сбербанк</Link>
+        <Link href="/companies?q=1027700132195" prefetch={false}>1027700132195</Link>
+      </div>
+      <p className="company-meta">В карточке доступны сведения ФНС (реестр МСП, доходы и расходы, налоги и задолженность, численность работников, спецрежимы) и регистрационные реквизиты DaData.</p>
+    </div>}
     {q && !data && <Failure error={result?.error} retry={searchPath(q, result?.error?.error.code === "invalid_cursor" ? undefined : cursor)} />}
     {data && <>
       <Warnings warnings={data.warnings} coverage={data.coverage} />
@@ -152,14 +162,14 @@ function CompanyResult({ company, name, external }: {
   external: boolean;
 }) {
   return <li>
-    <Link href={companyPath(company.id)} prefetch={false}>
+    <CompanyResultLink href={companyPath(company.id)} id={company.id} name={name}>
       <strong>{name ?? (company.kind === "entrepreneur" ? "Индивидуальный предприниматель" : "Юридическое лицо")}</strong>
       <span className="company-meta">
         <span>ИНН {company.inn}</span>
         {company.registration_number && <span>{companyIdentifier(`reg:${company.registration_number}`)}</span>}
         {external && <span>DaData</span>}
       </span>
-    </Link>
+    </CompanyResultLink>
   </li>;
 }
 
@@ -177,15 +187,29 @@ function Facts({ rows }: { rows: [string, React.ReactNode][] }) {
   </dl>;
 }
 
+const statusMeta: Record<string, { label: string; tone: "success" | "warning" | "danger" }> = {
+  ACTIVE: { label: "Действующая", tone: "success" },
+  LIQUIDATING: { label: "Ликвидируется", tone: "warning" },
+  REORGANIZING: { label: "Реорганизуется", tone: "warning" },
+  LIQUIDATED: { label: "Ликвидирована", tone: "danger" },
+  BANKRUPT: { label: "Банкротство", tone: "danger" },
+};
+
+function StatusBadge({ status }: { status: string }) {
+  const info = statusMeta[status] ?? { label: status, tone: "neutral" as const };
+  return <span className="company-status-badge" data-tone={info.tone}>{info.label}</span>;
+}
+
 function Profile({ data }: { data: Schema["Profile"] }) {
   const { company, dadata, headcounts, sections, sources } = data;
+  const regLabel = company.kind === "entrepreneur" ? "ОГРНИП" : "ОГРН";
   return <>
     <section className="company-section">
       <h2>Регистрация</h2>
       <Facts rows={[
         ["Тип", company.kind === "entrepreneur" ? "Индивидуальный предприниматель" : "Юридическое лицо"],
-        ["ИНН", company.inn],
-        [company.kind === "entrepreneur" ? "ОГРНИП" : "ОГРН", company.registration_number],
+        ["ИНН", <CopyValue key="inn" value={company.inn} label="ИНН" />],
+        [regLabel, company.registration_number && <CopyValue key="reg" value={company.registration_number} label={regLabel} />],
         ["Наименование", company.name && <>{company.name.value}<Evidence evidence={company.name} sources={sources} /></>],
       ]} />
       {company.registration_evidence && <Evidence evidence={company.registration_evidence} sources={sources} />}
@@ -193,13 +217,16 @@ function Profile({ data }: { data: Schema["Profile"] }) {
     </section>
     {dadata && <section className="company-section">
       <h2>Сведения DaData</h2>
-      <Facts rows={[
-        ["Наименование", dadata.name], ["Статус", ({ ACTIVE: "Действующая", LIQUIDATING: "Ликвидируется", LIQUIDATED: "Ликвидирована", REORGANIZING: "Реорганизуется", BANKRUPT: "Банкротство" })[dadata.status ?? ""] ?? dadata.status],
+      <Facts rows={([
+        ["Наименование", dadata.name],
+        ["Статус", dadata.status && <StatusBadge key="status" status={dadata.status} />],
         ["Дата регистрации", dadata.registered_on && date(dadata.registered_on)], ["КПП", dadata.kpp],
-        ["ОКВЭД", dadata.okved], ["Адрес", dadata.address], ["Город", dadata.residence_city],
+        ["ОКВЭД", dadata.okved],
+        ["Адрес", dadata.address && <CopyValue key="address" value={dadata.address} label="Адрес" />],
+        ["Город", dadata.residence_city],
         ["Руководитель", dadata.manager && [dadata.manager.name, dadata.manager.title, dadata.manager.started_on && `с ${date(dadata.manager.started_on)}`].filter(Boolean).join(" · ")],
         ["Последнее изменение", dadata.last_changed_on && date(dadata.last_changed_on)],
-      ].filter((row): row is [string, string] => typeof row[1] === "string")} />
+      ] as [string, React.ReactNode][]).filter((row): row is [string, React.ReactNode] => Boolean(row[1]))} />
       <p className="company-meta"><SourceLink url={dadata.source_url}>DaData</SourceLink> Получено {date(dadata.retrieved_at)} · Дата актуальности не указана</p>
     </section>}
     <section className="company-section">
@@ -263,6 +290,22 @@ function Sources({ data }: { data: Schema["Observations"] }) {
   </>;
 }
 
+function UnavailableOverview({ id, retry }: { id: string; retry: string }) {
+  const number = id.slice(4);
+  const isInn = id.startsWith("inn:");
+  const isEntrepreneur = isInn ? number.length === 12 : number.length === 15;
+  const idLabel = isInn ? "ИНН" : isEntrepreneur ? "ОГРНИП" : "ОГРН";
+  return <section className="company-section">
+    <h2>Регистрация</h2>
+    <Facts rows={[
+      ["Тип", isEntrepreneur ? "Индивидуальный предприниматель" : "Юридическое лицо"],
+      [idLabel, <CopyValue key="id" value={number} label={idLabel} />],
+    ]} />
+    <p className="company-meta">Сведения DaData временно недоступны, а в локальных выгрузках ФНС эта компания не найдена. Вы можете повторить запрос позже или задать вопрос в чате.</p>
+    <a className="button button-outline" href={retry}>Повторить</a>
+  </section>;
+}
+
 export async function CompanyCard({ api, id, section, query }: {
   api: Api;
   id: string;
@@ -278,22 +321,32 @@ export async function CompanyCard({ api, id, section, query }: {
   const taxPath = (kind: keyof typeof taxLabels, page?: number) => `${base}/taxes?tax=${kind}${page ? `&offset=${page}` : ""}`;
   let content: React.ReactNode;
   let data: (Schema["Response"] & { id: string }) | undefined;
+  let failureError: Schema["Error"] | undefined;
   let title = companyIdentifier(id);
 
   switch (section) {
     case "overview": {
       const result = await companyRequest(api.GET("/v1/companies/{id}", { params }));
       data = result?.data;
+      failureError = result?.error;
       if (result?.data) {
         title = result.data.company.name?.value ?? result.data.dadata?.name ?? title;
       }
-      content = result?.data ? <Profile data={result.data} /> : <Failure error={result?.error} retry={base} />;
+      content = result?.data
+        ? <Profile data={result.data} />
+        : result?.error?.error.code === "provider_unavailable"
+          ? <UnavailableOverview id={id} retry={base} />
+          : <Failure error={result?.error} retry={base} />;
       break;
     }
     case "financials": {
       const result = await companyRequest(api.GET("/v1/companies/{id}/financials", { params }));
       const financials = result?.data;
       data = financials;
+      failureError = result?.error;
+      if (financials?.items[0]?.display_name) {
+        title = financials.items[0].display_name;
+      }
       content = financials ? <section className="company-section">
         <h2>Доходы и расходы</h2>
         {financials.state !== "found" && <p>{availability[financials.state]}</p>}
@@ -302,7 +355,7 @@ export async function CompanyCard({ api, id, section, query }: {
           <Facts rows={[["Доходы", money(item.income)], ["Расходы", money(item.expense)]]} />
           <Evidence evidence={item} sources={financials.sources} />
         </li>)}</ul>
-      </section> : <Failure error={result?.error} retry={`${base}/financials`} />;
+      </section> : <Failure error={result?.error} retry={`${base}/financials`} hideWarnings={result?.error?.error.code === "provider_unavailable"} />;
       break;
     }
     case "taxes": {
@@ -310,6 +363,7 @@ export async function CompanyCard({ api, id, section, query }: {
         params: { ...params, query: tax === "regimes" ? { section: tax } : { section: tax, limit: 20, offset } },
       }));
       data = result?.data;
+      failureError = result?.error;
       content = <section className="company-section">
         <h2>Налоги</h2>
         <nav className="company-actions" aria-label="Виды налоговых сведений">
@@ -318,7 +372,7 @@ export async function CompanyCard({ api, id, section, query }: {
         </nav>
         {offset && tax !== "regimes" ? <Link className="company-link" href={taxPath(tax)} prefetch={false}>Первая страница</Link> : null}
         {result?.data ? <TaxRecords data={result.data} next={(page) => taxPath(tax, page)} /> :
-          <Failure error={result?.error} retry={taxPath(tax, offset)} />}
+          <Failure error={result?.error} retry={taxPath(tax, offset)} hideWarnings={result?.error?.error.code === "provider_unavailable"} />}
       </section>;
       break;
     }
@@ -326,27 +380,29 @@ export async function CompanyCard({ api, id, section, query }: {
       const result = await companyRequest(api.GET("/v1/companies/{id}/sources", { params }));
       const sources = result?.data;
       data = sources;
+      failureError = result?.error;
       content = sources ? <section className="company-section"><h2>Источники</h2><Sources data={sources} /></section> :
-        <Failure error={result?.error} retry={`${base}/sources`} />;
+        <Failure error={result?.error} retry={`${base}/sources`} hideWarnings={result?.error?.error.code === "provider_unavailable"} />;
       break;
     }
   }
 
+  const chatTargetId = data?.id ?? id;
+  const providerUnavailable = !data && failureError?.error.code === "provider_unavailable";
+
   return <div className="company-content">
     <Link className="company-back" href="/companies" prefetch={false}>К поиску компаний</Link>
     <header className="company-heading">
-      <div>
-        <h1>{title}</h1>
-        {title !== companyIdentifier(id) && <p>{companyIdentifier(id)}</p>}
-      </div>
-      {data && isRegistration(data.id) &&
-        <Link className="button button-primary" href={`/chat?company=${encodeURIComponent(data.id)}`} prefetch={false}>Спросить в чате</Link>}
+      <CompanyTitleHeading id={id} serverTitle={title} identifier={companyIdentifier(id)} />
+      {isRegistration(chatTargetId) &&
+        <Link className="button button-primary" href={`/chat?company=${encodeURIComponent(chatTargetId)}`} prefetch={false}>Спросить в чате</Link>}
     </header>
     <nav className="company-tabs" aria-label="Разделы карточки">
       {Object.entries(companyLabels).map(([key, label]) => <Link key={key} prefetch={false}
         href={key === "overview" ? base : `${base}/${key}`} aria-current={section === key ? "page" : undefined}>{label}</Link>)}
     </nav>
     {data && <Warnings warnings={data.warnings} coverage={data.coverage} />}
+    {providerUnavailable && <Warnings warnings={failureError?.warnings ?? []} coverage={{ local: "partial", dadata: "unavailable" }} />}
     {content}
   </div>;
 }

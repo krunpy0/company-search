@@ -47,7 +47,7 @@ export function AuthForm({ mode, children }: { mode: "register" | "login"; child
 
   return (
     <main className="auth-screen">
-      <Link className="brand" href="/" aria-label={`${productName}, главная`}>{productName}</Link>
+      <Link className="brand" href="/landing" prefetch={false} aria-label={`${productName}, на лендинг`}>{productName}</Link>
       <section className="auth-card" aria-labelledby="auth-title">
         <h1 id="auth-title">{title}</h1>
         {children}

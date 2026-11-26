@@ -12,7 +12,7 @@ import { Answer } from "./chat-answer";
 import { ChatExportDialog } from "./chat-export";
 import { collectChatHistory } from "./chat-history";
 
-type Props = { initialId?: string; company?: string; onDialogue: (dialogue: Dialogue) => void };
+type Props = { initialId?: string; company?: string; onDialogue: (dialogue: Dialogue) => void; onNewChat?: () => void };
 type Attempt = { kind: "question"; draft: string } | { kind: "candidate"; registration: string };
 type Recovery = { attempt: Attempt; id: string; boundary?: string };
 type Failure = {
@@ -21,6 +21,18 @@ type Failure = {
 } & ({ kind: "retry"; attempt: Attempt } | { kind: "check" | "checked"; recovery: Recovery } | { kind: "notice" });
 type History = { kind: "loading" } | { kind: "ready" } | { kind: "missing" } | { kind: "error"; requestId?: string };
 type Overlay = { kind: "quota" } | { kind: "export" | "report"; turn: Turn } | { kind: "technical"; requestId: string; dialogueText?: string };
+
+const templates = [
+  ["Оценка рисков", "Оцени риски работы с компанией "],
+  ["Анализ конкурента", "Проанализируй конкурента "],
+  ["Проверка бизнеса", "Проверь компанию "],
+];
+
+const companyTemplates = [
+  ["Оценка рисков", "Оцени риски работы с этой компанией"],
+  ["Финансы и налоги", "Покажи доходы, расходы и налоги этой компании"],
+  ["Проверка бизнеса", "Сделай общую проверку этой компании"],
+];
 
 const messageBudget = "Дневной лимит сообщений исчерпан. Попробуйте после полуночи по Москве.";
 const failureMessages: Record<string, string> = {
@@ -57,7 +69,7 @@ export function Chat(props: Props) {
   return <ChatThread key={props.initialId ?? props.company ?? "new"} {...props} />;
 }
 
-function ChatThread({ initialId, company, onDialogue }: Props) {
+function ChatThread({ initialId, company, onDialogue, onNewChat }: Props) {
   const [dialogue, setDialogue] = useState<Dialogue>();
   const [turns, setTurns] = useState<Turn[]>([]);
   const [older, setOlder] = useState<string>();
@@ -83,6 +95,8 @@ function ChatThread({ initialId, company, onDialogue }: Props) {
   const candidates = dialogue?.candidates ?? [];
   const needsCheck = failure?.kind === "check" || failure?.kind === "checked";
   const busy = Boolean(pending || checking);
+  const canSubmit = !busy && !needsCheck && !candidates.length && Boolean(draft.trim());
+  const draftInput = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     active.current = true;
@@ -319,7 +333,7 @@ function ChatThread({ initialId, company, onDialogue }: Props) {
   }
 
   const composer = <form className="workspace-question" onSubmit={submit}>
-    <textarea value={pending ? "" : draft} className="field" aria-label="Вопрос о компании" maxLength={4000}
+    <textarea ref={draftInput} value={pending ? "" : draft} className="field" aria-label="Вопрос о компании" maxLength={4000}
       placeholder={candidates.length ? "Выберите регистрацию выше" : inThread ? "Ответить…" : "Введите ИНН, ОГРН, название компании или ФИО предпринимателя..."}
       required disabled={busy || needsCheck || Boolean(candidates.length)}
       onChange={(event) => {
@@ -336,8 +350,8 @@ function ChatThread({ initialId, company, onDialogue }: Props) {
           event.currentTarget.form?.requestSubmit();
         }
       }} />
-    <button className="button send workspace-send" aria-label="Отправить вопрос"
-      disabled={busy || needsCheck || Boolean(candidates.length)}><Arrow /></button>
+    <button className="button button-primary send workspace-send" aria-label="Отправить вопрос"
+      disabled={!canSubmit}><Arrow /></button>
   </form>;
 
   const issue = failure && <div className="chat-failure">
@@ -366,12 +380,24 @@ function ChatThread({ initialId, company, onDialogue }: Props) {
       <p><Link href="/companies" prefetch={false}>Найдите компанию</Link>, проверьте конкурента или задайте вопрос.</p>
       {company && <p className="workspace-selected">Выбрана регистрация <Link href={companyPath(company)} prefetch={false}>{companyIdentifier(company)}</Link></p>}
       {composer}
+      <div className="workspace-templates" aria-label="Примеры вопросов">
+        {(company ? companyTemplates : templates).map(([label, text]) => (
+          <button key={label} type="button" className="workspace-template-chip" disabled={busy} onClick={() => {
+            setDraft(text);
+            setFailure(undefined);
+            if (storeDraft.current) {
+              try { sessionStorage.setItem(questionDraftKey, text); } catch { /* Storage may be disabled. */ }
+            }
+            draftInput.current?.focus();
+          }}>{label}</button>
+        ))}
+      </div>
       {issue}
     </div> : history.kind !== "ready" ? <div className="workspace-state">
       {history.kind === "loading" ? <p role="status">Загружаем диалог…</p> : <>
         <h1>{history.kind === "missing" ? "Диалог не найден" : "Не удалось загрузить диалог"}</h1>
         {history.kind === "missing"
-          ? <Link className="button button-outline" href="/chat" prefetch={false}>К новому чату</Link>
+          ? <Link className="button button-outline" href="/chat" prefetch={false} onNavigate={onNewChat}>К новому чату</Link>
           : <>
             <button className="button button-outline" type="button" onClick={() => {
               setHistory({ kind: "loading" });

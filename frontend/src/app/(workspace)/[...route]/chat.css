@@ -137,7 +137,12 @@
 .chat-footer .workspace-question textarea { min-height: 6.25rem; padding: .75rem 1.125rem 3rem; border-color: transparent; background: var(--surface-input); }
 .chat-footer .workspace-question button { bottom: .75rem; }
 .workspace-question .workspace-send:hover:not(:disabled) { background: var(--accent-hover); }
-.workspace-question .workspace-send:disabled { opacity: .5; }
+.workspace-question .workspace-send:disabled {
+  background: var(--surface-raised);
+  border-color: var(--border-strong);
+  color: var(--text-muted);
+  opacity: 1;
+}
 .workspace-dialogues { min-height: 0; overflow-y: auto; overflow-x: hidden; margin-top: .25rem; }
 .workspace-dialogues a, .workspace-dialogues button { display: flex; align-items: center; min-height: 2.2rem; padding: .375rem .5rem; border-radius: .75rem; font-size: .9375rem; }
 .workspace-dialogues a { overflow-wrap: anywhere; }

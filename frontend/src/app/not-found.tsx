@@ -6,7 +6,7 @@ export default function NotFound() {
     <SystemScreen title="Страница не найдена">
       <p>Проверьте адрес или начните с главной страницы.</p>
       <div className="system-actions">
-        <Link className="button button-primary" href="/">На главную</Link>
+        <Link className="button button-primary" href="/" prefetch={false}>На главную</Link>
         <Link className="button button-outline" href="/help">Помощь</Link>
       </div>
     </SystemScreen>
