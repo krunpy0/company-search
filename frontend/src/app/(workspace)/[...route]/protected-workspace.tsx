@@ -11,17 +11,23 @@ import { CompanyCard, CompanySearch } from "./companies";
 import { isCompanyId, isRegistration } from "./company-data";
 import { Workspace } from "./workspace";
 
-export const viewport: Viewport = { interactiveWidget: "resizes-content" };
+export const workspaceViewport: Viewport = { interactiveWidget: "resizes-content" };
 
-async function ProtectedWorkspace({ params, searchParams }: PageProps<"/[...route]">) {
+type WorkspacePage = {
+  section: "chat" | "companies";
+  params: Promise<{ route?: string[] }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export async function ProtectedWorkspace({ section, params, searchParams }: WorkspacePage) {
   await connection();
-  const [{ route }, query] = await Promise.all([params, searchParams]);
-  const [section, rawId, tab] = route;
+  const [{ route = [] }, query] = await Promise.all([params, searchParams]);
+  const [rawId, tab] = route;
   const id = rawId?.replace(/%3a/i, ":");
   const companyTab = tab === "financials" || tab === "taxes" || tab === "sources" ? tab : undefined;
   if (section === "companies") {
-    if (route.length > 3 || (id && !isCompanyId(id)) || (tab && !companyTab)) notFound();
-  } else if (section !== "chat" || route.length > 2 || (id && !isChatId(id))) {
+    if (route.length > 2 || (id && !isCompanyId(id)) || (tab && !companyTab)) notFound();
+  } else if (route.length > 1 || (id && !isChatId(id))) {
     notFound();
   }
 
@@ -43,9 +49,5 @@ async function ProtectedWorkspace({ params, searchParams }: PageProps<"/[...rout
 
   const company = typeof query.company === "string" && isRegistration(query.company) ? query.company : undefined;
   return <Workspace key={id ?? company ?? "new-chat"} chat={{ id, company }} />;
-}
-
-export default function WorkspacePage(props: PageProps<"/[...route]">) {
-  return <ProtectedWorkspace {...props} />;
 }
 
