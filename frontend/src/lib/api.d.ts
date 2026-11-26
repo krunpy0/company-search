@@ -55,6 +55,80 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/account/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read the current account profile. */
+        get: operations["getAccountProfile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Change the display name, email, or both. */
+        patch: operations["updateAccountProfile"];
+        trace?: never;
+    };
+    "/v1/account/avatar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read the current account avatar. */
+        get: operations["getAccountAvatar"];
+        /**
+         * Replace the current account avatar.
+         * @description Send up to 2 MiB of raw PNG or JPEG data. The image may have up to 4096 pixels per edge and 8,388,608 pixels in total. It is stored as PNG with up to 512 pixels per edge.
+         */
+        put: operations["uploadAccountAvatar"];
+        post?: never;
+        /** Remove the current account avatar. */
+        delete: operations["removeAccountAvatar"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/account/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Replace the password and revoke all sessions except the current one. */
+        post: operations["changeAccountPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/account": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete the current account, its avatar, dialogues, saved turns and sessions. */
+        delete: operations["deleteAccount"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/chat/dialogues": {
         parameters: {
             query?: never;
@@ -67,10 +141,54 @@ export interface paths {
         put?: never;
         /** Create a dialogue with an optional selected registration. */
         post: operations["createChatDialogue"];
+        /**
+         * Delete all of the current account's dialogues and saved turns.
+         * @description Daily usage counters remain in effect.
+         */
+        delete: operations["clearChatHistory"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/chat/dialogues/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search the current account's chat history, newest dialogue ID first.
+         * @description Matches a case-insensitive literal substring in titles, registrations, registration candidates, saved questions, and saved answer summaries.
+         */
+        get: operations["searchChatDialogues"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/v1/chat/dialogues/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["ChatId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a dialogue owned by the current account and its saved turns. */
+        delete: operations["deleteChatDialogue"];
+        options?: never;
+        head?: never;
+        /** Rename a dialogue owned by the current account. */
+        patch: operations["renameChatDialogue"];
         trace?: never;
     };
     "/v1/chat/dialogues/{id}/messages": {
@@ -185,6 +303,18 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AccountProfile: {
+            user_id: string;
+            /** Format: email */
+            email: string;
+            display_name: string;
+            has_avatar: boolean;
+        };
+        /**
+         * Format: password
+         * @description 12 to 72 UTF-8 bytes.
+         */
+        AccountPassword: string;
         ChatId: string;
         ChatRegistration: string;
         ChatDialogue: {
@@ -465,6 +595,33 @@ export interface components {
         };
     };
     responses: {
+        /** @description Current account profile. */
+        AccountProfile: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["AccountProfile"];
+            };
+        };
+        /** @description Invalid password length or JSON body (invalid_password or invalid_json). */
+        InvalidAccountPassword: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description Current password is incorrect (incorrect_password). */
+        IncorrectPassword: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
         /** @description Invalid email address, password or JSON body. */
         InvalidCredentialsInput: {
             headers: {
@@ -632,6 +789,211 @@ export interface operations {
             503: components["responses"]["AuthUnavailable"];
         };
     };
+    getAccountProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["AccountProfile"];
+            401: components["responses"]["SessionRequired"];
+            503: components["responses"]["AuthUnavailable"];
+        };
+    };
+    updateAccountProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    display_name?: string;
+                    /** Format: email */
+                    email?: string;
+                    current_password?: components["schemas"]["AccountPassword"];
+                } | unknown | unknown;
+            };
+        };
+        responses: {
+            200: components["responses"]["AccountProfile"];
+            /** @description Invalid JSON, display name, email or password (invalid_json, invalid_profile or invalid_password). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["SessionRequired"];
+            403: components["responses"]["IncorrectPassword"];
+            /** @description Email is already registered (email_in_use). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            429: components["responses"]["AuthBusy"];
+            503: components["responses"]["AuthUnavailable"];
+        };
+    };
+    getAccountAvatar: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Saved avatar encoded as PNG. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": string;
+                };
+            };
+            401: components["responses"]["SessionRequired"];
+            /** @description The account has no saved avatar (avatar_not_found). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            503: components["responses"]["AuthUnavailable"];
+        };
+    };
+    uploadAccountAvatar: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "image/png": string;
+                "image/jpeg": string;
+            };
+        };
+        responses: {
+            200: components["responses"]["AccountProfile"];
+            /** @description Invalid image type, body or dimensions (invalid_avatar). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["SessionRequired"];
+            /** @description Avatar exceeds 2 MiB (avatar_too_large). */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            429: components["responses"]["AuthBusy"];
+            503: components["responses"]["AuthUnavailable"];
+        };
+    };
+    removeAccountAvatar: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Account has no saved avatar. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["SessionRequired"];
+            503: components["responses"]["AuthUnavailable"];
+        };
+    };
+    changeAccountPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    current_password: components["schemas"]["AccountPassword"];
+                    new_password: components["schemas"]["AccountPassword"];
+                };
+            };
+        };
+        responses: {
+            /** @description Password changed and other sessions revoked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["InvalidAccountPassword"];
+            401: components["responses"]["SessionRequired"];
+            403: components["responses"]["IncorrectPassword"];
+            429: components["responses"]["AuthBusy"];
+            503: components["responses"]["AuthUnavailable"];
+        };
+    };
+    deleteAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    current_password: components["schemas"]["AccountPassword"];
+                };
+            };
+        };
+        responses: {
+            /** @description Account and data deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["InvalidAccountPassword"];
+            401: components["responses"]["SessionRequired"];
+            403: components["responses"]["IncorrectPassword"];
+            429: components["responses"]["AuthBusy"];
+            503: components["responses"]["AuthUnavailable"];
+        };
+    };
     listChatDialogues: {
         parameters: {
             query?: {
@@ -685,6 +1047,126 @@ export interface operations {
             };
             400: components["responses"]["ChatInvalidInput"];
             401: components["responses"]["SessionRequired"];
+            503: components["responses"]["ChatUnavailable"];
+        };
+    };
+    clearChatHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description History cleared. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["SessionRequired"];
+            503: components["responses"]["ChatUnavailable"];
+        };
+    };
+    searchChatDialogues: {
+        parameters: {
+            query: {
+                q: string;
+                /** @description Return IDs lower than this cursor. Omit it for the first page. */
+                before_id?: components["parameters"]["ChatBeforeId"];
+                limit?: components["parameters"]["ChatPageSize"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page of matching dialogues. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatDialoguePage"];
+                };
+            };
+            /** @description Invalid search query or pagination (invalid_search or invalid_pagination). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["SessionRequired"];
+            503: components["responses"]["ChatUnavailable"];
+        };
+    };
+    deleteChatDialogue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["ChatId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Dialogue deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["ChatInvalidInput"];
+            401: components["responses"]["SessionRequired"];
+            404: components["responses"]["ChatNotFound"];
+            503: components["responses"]["ChatUnavailable"];
+        };
+    };
+    renameChatDialogue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["ChatId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    title: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated dialogue. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatDialogue"];
+                };
+            };
+            /** @description Invalid dialogue ID, title or JSON body (invalid_dialogue_id, invalid_title or invalid_json). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["SessionRequired"];
+            404: components["responses"]["ChatNotFound"];
             503: components["responses"]["ChatUnavailable"];
         };
     };

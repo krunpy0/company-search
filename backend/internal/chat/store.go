@@ -61,6 +61,47 @@ func (s Store) List(ctx context.Context, user, before int64, limit int) ([]Dialo
 	return pgx.CollectRows(rows, pgx.RowToStructByPos[Dialogue])
 }
 
+func (s Store) Search(ctx context.Context, user, before int64, limit int, query string) ([]Dialogue, error) {
+	rows, err := s.Pool.Query(ctx, "SELECT "+dialogueColumns+` FROM accounts.chat_dialogues AS d
+		WHERE user_id=$1 AND ($2=0 OR id<$2) AND (
+			strpos(lower(d.title), lower($4)) > 0
+			OR strpos(d.registration, lower($4)) > 0
+			OR strpos(array_to_string(d.pending_registrations, ' '), lower($4)) > 0
+			OR EXISTS (
+				SELECT 1 FROM accounts.chat_turns AS t WHERE t.dialogue_id=d.id AND
+				(strpos(lower(t.question), lower($4)) > 0 OR strpos(lower(t.answer->>'summary'), lower($4)) > 0)
+			))
+		ORDER BY id DESC LIMIT $3`, user, before, limit, query)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowToStructByPos[Dialogue])
+}
+
+func (s Store) Rename(ctx context.Context, user, id int64, title string) (Dialogue, error) {
+	var d Dialogue
+	err := s.Pool.QueryRow(ctx, `UPDATE accounts.chat_dialogues SET title=$3, updated_at=statement_timestamp()
+		WHERE user_id=$1 AND id=$2 RETURNING `+dialogueColumns,
+		user, id, title).Scan(&d.ID, &d.Registration, &d.Title, &d.Candidates, &d.CreatedAt, &d.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Dialogue{}, ErrNotFound
+	}
+	return d, err
+}
+
+func (s Store) Delete(ctx context.Context, user, id int64) error {
+	deleted, err := s.Pool.Exec(ctx, "DELETE FROM accounts.chat_dialogues WHERE user_id=$1 AND id=$2", user, id)
+	if err == nil && deleted.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return err
+}
+
+func (s Store) Clear(ctx context.Context, user int64) error {
+	_, err := s.Pool.Exec(ctx, "DELETE FROM accounts.chat_dialogues WHERE user_id=$1", user)
+	return err
+}
+
 func (s Store) History(ctx context.Context, user, id, before int64, limit int) (Dialogue, []Turn, error) {
 	var d Dialogue
 	var turns []Turn

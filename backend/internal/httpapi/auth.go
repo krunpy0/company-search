@@ -19,9 +19,23 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+const (
+	passwordCost   = 12
+	sessionHashKey = "account.session_hash"
+)
+
+func accountEmail(raw string) (string, bool) {
+	email := strings.ToLower(strings.TrimSpace(raw))
+	address, err := mail.ParseAddress(email)
+	return email, len(email) <= 254 && err == nil && address.Address == email
+}
+
+func accountPassword(password string) bool {
+	return len(password) >= 12 && len(password) <= 72
+}
+
 func RegisterAuth(r *gin.Engine, pool *pgxpool.Pool) gin.HandlerFunc {
-	const cost = 12
-	dummyHash, err := bcrypt.GenerateFromPassword([]byte(rand.Text()), cost)
+	dummyHash, err := bcrypt.GenerateFromPassword([]byte(rand.Text()), passwordCost)
 	if err != nil {
 		panic(err)
 	}
@@ -37,10 +51,8 @@ func RegisterAuth(r *gin.Engine, pool *pgxpool.Pool) gin.HandlerFunc {
 			Password string `json:"password"`
 		}
 		if c.ShouldBindJSON(&input) == nil {
-			email := strings.ToLower(strings.TrimSpace(input.Email))
-			address, err := mail.ParseAddress(email)
-			if len(email) <= 254 && err == nil && address.Address == email &&
-				len(input.Password) >= 12 && len(input.Password) <= 72 {
+			email, validEmail := accountEmail(input.Email)
+			if validEmail && accountPassword(input.Password) {
 				return email, input.Password, true
 			}
 		}
@@ -62,7 +74,7 @@ func RegisterAuth(r *gin.Engine, pool *pgxpool.Pool) gin.HandlerFunc {
 		if !ok {
 			return
 		}
-		hash, err := bcrypt.GenerateFromPassword([]byte(password), cost)
+		hash, err := bcrypt.GenerateFromPassword([]byte(password), passwordCost)
 		if err != nil {
 			fail(c, 503, "auth_unavailable", "Authentication temporarily unavailable")
 			return
@@ -104,9 +116,16 @@ func RegisterAuth(r *gin.Engine, pool *pgxpool.Pool) gin.HandlerFunc {
 		token := base64.RawURLEncoding.EncodeToString(secret[:])
 		tokenHash := sha256.Sum256(secret[:])
 		var expiresAt time.Time
+		// Serialize session issuance with credential changes and recheck the verified hash.
 		err = pool.QueryRow(ctx, `
 			INSERT INTO accounts.sessions (token_hash, user_id, expires_at)
-			VALUES ($1, $2, statement_timestamp() + interval '24 hours') RETURNING expires_at`, tokenHash[:], id).Scan(&expiresAt)
+			SELECT $1, id, statement_timestamp() + interval '24 hours'
+			FROM accounts.users WHERE id=$2 AND email=$3 AND password_hash=$4 FOR SHARE
+			RETURNING expires_at`, tokenHash[:], id, email, hash).Scan(&expiresAt)
+		if errors.Is(err, pgx.ErrNoRows) {
+			fail(c, 401, "invalid_credentials", "Invalid email or password")
+			return
+		}
 		if err != nil {
 			fail(c, 503, "auth_unavailable", "Authentication temporarily unavailable")
 			return
@@ -136,6 +155,7 @@ func RegisterAuth(r *gin.Engine, pool *pgxpool.Pool) gin.HandlerFunc {
 			fail(c, 503, "auth_unavailable", "Authentication temporarily unavailable")
 		default:
 			c.Request = c.Request.WithContext(quota.WithUser(c.Request.Context(), id))
+			c.Set(sessionHashKey, hash)
 		}
 	}
 	group.POST("/logout", func(c *gin.Context) {
@@ -144,9 +164,11 @@ func RegisterAuth(r *gin.Engine, pool *pgxpool.Pool) gin.HandlerFunc {
 			c.Status(204)
 		}
 	})
-	return func(c *gin.Context) {
+	requireSession := func(c *gin.Context) {
 		session(c, `SELECT user_id FROM accounts.sessions WHERE token_hash=$1 AND expires_at > statement_timestamp()`)
 	}
+	registerAccount(r.Group("/v1/account", requireSession), pool, bounded)
+	return requireSession
 }
 
 func rejectSession(c *gin.Context) {

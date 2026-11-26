@@ -24,6 +24,7 @@ func RegisterChat(r gin.IRouter, service chat.Service) {
 			rejectSession(c)
 		}
 	})
+	registerChatManagement(group, service.Store)
 	group.POST("", func(c *gin.Context) {
 		var input struct {
 			Registration string `json:"registration"`
@@ -59,13 +60,7 @@ func RegisterChat(r gin.IRouter, service chat.Service) {
 			chatFailure(c, err)
 			return
 		}
-		response := gin.H{}
-		if len(items) > limit {
-			items = items[:limit]
-			response["next_before_id"] = strconv.FormatInt(items[limit-1].ID, 10)
-		}
-		response["dialogues"] = items
-		c.JSON(200, response)
+		chatDialoguePage(c, items, limit)
 	})
 	group.GET("/:id/messages", func(c *gin.Context) {
 		id, ok := chatID(c)
@@ -122,6 +117,81 @@ func RegisterChat(r gin.IRouter, service chat.Service) {
 		}
 		c.JSON(201, turn)
 	})
+}
+
+func registerChatManagement(group *gin.RouterGroup, store chat.Store) {
+	group.GET("/search", func(c *gin.Context) {
+		query := strings.TrimSpace(c.Query("q"))
+		if query == "" || !utf8.ValidString(query) || utf8.RuneCountInString(query) > 200 || strings.ContainsRune(query, 0) {
+			fail(c, 400, "invalid_search", "Provide a search query of 1 to 200 characters")
+			return
+		}
+		before, limit, ok := chatPage(c)
+		if !ok {
+			return
+		}
+		user, _ := quota.UserID(c.Request.Context())
+		items, err := store.Search(c.Request.Context(), user, before, limit+1, query)
+		if err != nil {
+			chatFailure(c, err)
+			return
+		}
+		chatDialoguePage(c, items, limit)
+	})
+	group.PATCH("/:id", func(c *gin.Context) {
+		id, ok := chatID(c)
+		if !ok {
+			return
+		}
+		var input struct {
+			Title string `json:"title"`
+		}
+		if !chatJSON(c, &input) {
+			return
+		}
+		title := strings.TrimSpace(input.Title)
+		if title == "" || utf8.RuneCountInString(title) > 80 || strings.ContainsRune(title, 0) {
+			fail(c, 400, "invalid_title", "Provide a title of 1 to 80 characters")
+			return
+		}
+		user, _ := quota.UserID(c.Request.Context())
+		dialogue, err := store.Rename(c.Request.Context(), user, id, title)
+		if err != nil {
+			chatFailure(c, err)
+			return
+		}
+		c.JSON(200, dialogue)
+	})
+	group.DELETE("/:id", func(c *gin.Context) {
+		id, ok := chatID(c)
+		if !ok {
+			return
+		}
+		user, _ := quota.UserID(c.Request.Context())
+		if err := store.Delete(c.Request.Context(), user, id); err != nil {
+			chatFailure(c, err)
+			return
+		}
+		c.Status(204)
+	})
+	group.DELETE("", func(c *gin.Context) {
+		user, _ := quota.UserID(c.Request.Context())
+		if err := store.Clear(c.Request.Context(), user); err != nil {
+			chatFailure(c, err)
+			return
+		}
+		c.Status(204)
+	})
+}
+
+func chatDialoguePage(c *gin.Context, items []chat.Dialogue, limit int) {
+	response := gin.H{}
+	if len(items) > limit {
+		items = items[:limit]
+		response["next_before_id"] = strconv.FormatInt(items[limit-1].ID, 10)
+	}
+	response["dialogues"] = items
+	c.JSON(200, response)
 }
 
 func chatJSON(c *gin.Context, input any) bool {

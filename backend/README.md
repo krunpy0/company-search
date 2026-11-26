@@ -309,6 +309,16 @@ go test -count=1 -run 'TestChatHTTP|TestChatCompletionsTokenBudget' ./internal/h
 
 Модель и DaData в этих тестах подменены. [Контракт OpenAPI](openapi.yaml)
 
+### Профиль аккаунта и управление историей
+
+После миграции `014_account_profile.sql` повторно примени [настройку прав](db-roles.sql) под владельцем базы. Для изменения email или пароля и удаления аккаунта передай текущий пароль. Смена пароля отзывает остальные сессии. Очистка истории удаляет диалоги и сообщения, сохраняя дневные квоты. Маршруты описаны в [OpenAPI](openapi.yaml).
+
+Для HTTP-тестов профиля и истории примени миграции и права на отдельной базе с именем, начинающимся на `stage16_test`. Тесты очищают таблицы аккаунтов в этой базе. Задай `COMPANY_STAGE16_TEST_ADMIN_URL` и `COMPANY_STAGE16_TEST_API_URL` для владельца и роли `company_api` соответственно.
+
+```powershell
+go test -count=1 -run '^TestStage16' ./internal/httpapi
+```
+
 ## Локальный агент
 
 Укажи `DATABASE_URL` для базы с загруженными выпусками, `OPENAI_BASE_URL` для OpenAI-compatible API и `OPENAI_MODEL` для модели с Tool Calling. Задай `OPENAI_API_KEY`, если сервер требует Bearer-токен. Переменные можно задать в окружении или в локальном `.env`. CLI передаёт вопрос и локальные открытые данные ФНС на указанный сервер.

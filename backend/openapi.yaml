@@ -60,6 +60,142 @@ paths:
           description: Session revoked.
         '401': {$ref: '#/components/responses/SessionRequired'}
         '503': {$ref: '#/components/responses/AuthUnavailable'}
+  /v1/account/profile:
+    get:
+      operationId: getAccountProfile
+      summary: Read the current account profile.
+      responses:
+        '200': {$ref: '#/components/responses/AccountProfile'}
+        '401': {$ref: '#/components/responses/SessionRequired'}
+        '503': {$ref: '#/components/responses/AuthUnavailable'}
+    patch:
+      operationId: updateAccountProfile
+      summary: Change the display name, email, or both.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              anyOf:
+                - required: [display_name]
+                - required: [email]
+              dependentRequired:
+                email: [current_password]
+              properties:
+                display_name: {type: string, maxLength: 80}
+                email: {type: string, format: email, maxLength: 254}
+                current_password: {$ref: '#/components/schemas/AccountPassword'}
+      responses:
+        '200': {$ref: '#/components/responses/AccountProfile'}
+        '400':
+          description: Invalid JSON, display name, email or password (invalid_json, invalid_profile or invalid_password).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '401': {$ref: '#/components/responses/SessionRequired'}
+        '403': {$ref: '#/components/responses/IncorrectPassword'}
+        '409':
+          description: Email is already registered (email_in_use).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '429': {$ref: '#/components/responses/AuthBusy'}
+        '503': {$ref: '#/components/responses/AuthUnavailable'}
+  /v1/account/avatar:
+    get:
+      operationId: getAccountAvatar
+      summary: Read the current account avatar.
+      responses:
+        '200':
+          description: Saved avatar encoded as PNG.
+          content:
+            image/png:
+              schema: {type: string, format: binary}
+        '401': {$ref: '#/components/responses/SessionRequired'}
+        '404':
+          description: The account has no saved avatar (avatar_not_found).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '503': {$ref: '#/components/responses/AuthUnavailable'}
+    put:
+      operationId: uploadAccountAvatar
+      summary: Replace the current account avatar.
+      description: Send up to 2 MiB of raw PNG or JPEG data. The image may have up to 4096 pixels per edge and 8,388,608 pixels in total. It is stored as PNG with up to 512 pixels per edge.
+      requestBody:
+        required: true
+        content:
+          image/png:
+            schema: {type: string, format: binary}
+          image/jpeg:
+            schema: {type: string, format: binary}
+      responses:
+        '200': {$ref: '#/components/responses/AccountProfile'}
+        '400':
+          description: Invalid image type, body or dimensions (invalid_avatar).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '401': {$ref: '#/components/responses/SessionRequired'}
+        '413':
+          description: Avatar exceeds 2 MiB (avatar_too_large).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '429': {$ref: '#/components/responses/AuthBusy'}
+        '503': {$ref: '#/components/responses/AuthUnavailable'}
+    delete:
+      operationId: removeAccountAvatar
+      summary: Remove the current account avatar.
+      responses:
+        '204':
+          description: Account has no saved avatar.
+        '401': {$ref: '#/components/responses/SessionRequired'}
+        '503': {$ref: '#/components/responses/AuthUnavailable'}
+  /v1/account/password:
+    post:
+      operationId: changeAccountPassword
+      summary: Replace the password and revoke all sessions except the current one.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password, new_password]
+              properties:
+                current_password: {$ref: '#/components/schemas/AccountPassword'}
+                new_password: {$ref: '#/components/schemas/AccountPassword'}
+      responses:
+        '204':
+          description: Password changed and other sessions revoked.
+        '400': {$ref: '#/components/responses/InvalidAccountPassword'}
+        '401': {$ref: '#/components/responses/SessionRequired'}
+        '403': {$ref: '#/components/responses/IncorrectPassword'}
+        '429': {$ref: '#/components/responses/AuthBusy'}
+        '503': {$ref: '#/components/responses/AuthUnavailable'}
+  /v1/account:
+    delete:
+      operationId: deleteAccount
+      summary: Delete the current account, its avatar, dialogues, saved turns and sessions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password]
+              properties:
+                current_password: {$ref: '#/components/schemas/AccountPassword'}
+      responses:
+        '204':
+          description: Account and data deleted.
+        '400': {$ref: '#/components/responses/InvalidAccountPassword'}
+        '401': {$ref: '#/components/responses/SessionRequired'}
+        '403': {$ref: '#/components/responses/IncorrectPassword'}
+        '429': {$ref: '#/components/responses/AuthBusy'}
+        '503': {$ref: '#/components/responses/AuthUnavailable'}
   /v1/chat/dialogues:
     get:
       operationId: listChatDialogues
@@ -99,6 +235,82 @@ paths:
               schema: {$ref: '#/components/schemas/ChatDialogue'}
         '400': {$ref: '#/components/responses/ChatInvalidInput'}
         '401': {$ref: '#/components/responses/SessionRequired'}
+        '503': {$ref: '#/components/responses/ChatUnavailable'}
+    delete:
+      operationId: clearChatHistory
+      summary: Delete all of the current account's dialogues and saved turns.
+      description: Daily usage counters remain in effect.
+      responses:
+        '204':
+          description: History cleared.
+        '401': {$ref: '#/components/responses/SessionRequired'}
+        '503': {$ref: '#/components/responses/ChatUnavailable'}
+  /v1/chat/dialogues/search:
+    get:
+      operationId: searchChatDialogues
+      summary: Search the current account's chat history, newest dialogue ID first.
+      description: Matches a case-insensitive literal substring in titles, registrations, registration candidates, saved questions, and saved answer summaries.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 200}
+        - $ref: '#/components/parameters/ChatBeforeId'
+        - $ref: '#/components/parameters/ChatPageSize'
+      responses:
+        '200':
+          description: Page of matching dialogues.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ChatDialoguePage'}
+        '400':
+          description: Invalid search query or pagination (invalid_search or invalid_pagination).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '401': {$ref: '#/components/responses/SessionRequired'}
+        '503': {$ref: '#/components/responses/ChatUnavailable'}
+  /v1/chat/dialogues/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {$ref: '#/components/schemas/ChatId'}
+    patch:
+      operationId: renameChatDialogue
+      summary: Rename a dialogue owned by the current account.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: {type: string, minLength: 1, maxLength: 80}
+      responses:
+        '200':
+          description: Updated dialogue.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ChatDialogue'}
+        '400':
+          description: Invalid dialogue ID, title or JSON body (invalid_dialogue_id, invalid_title or invalid_json).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '401': {$ref: '#/components/responses/SessionRequired'}
+        '404': {$ref: '#/components/responses/ChatNotFound'}
+        '503': {$ref: '#/components/responses/ChatUnavailable'}
+    delete:
+      operationId: deleteChatDialogue
+      summary: Delete a dialogue owned by the current account and its saved turns.
+      responses:
+        '204':
+          description: Dialogue deleted.
+        '400': {$ref: '#/components/responses/ChatInvalidInput'}
+        '401': {$ref: '#/components/responses/SessionRequired'}
+        '404': {$ref: '#/components/responses/ChatNotFound'}
         '503': {$ref: '#/components/responses/ChatUnavailable'}
   /v1/chat/dialogues/{id}/messages:
     parameters:
@@ -425,6 +637,21 @@ components:
         application/json:
           schema: {$ref: '#/components/schemas/Credentials'}
   responses:
+    AccountProfile:
+      description: Current account profile.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/AccountProfile'}
+    InvalidAccountPassword:
+      description: Invalid password length or JSON body (invalid_password or invalid_json).
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    IncorrectPassword:
+      description: Current password is incorrect (incorrect_password).
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
     InvalidCredentialsInput:
       description: Invalid email address, password or JSON body.
       content:
@@ -467,6 +694,19 @@ components:
         application/json:
           schema: {$ref: '#/components/schemas/Error'}
   schemas:
+    AccountProfile:
+      type: object
+      required: [user_id, email, display_name, has_avatar]
+      properties:
+        user_id: {type: string}
+        email: {type: string, format: email}
+        display_name: {type: string, maxLength: 80}
+        has_avatar: {type: boolean}
+    AccountPassword:
+      type: string
+      format: password
+      writeOnly: true
+      description: 12 to 72 UTF-8 bytes.
     ChatId:
       type: string
       pattern: '^[1-9][0-9]{0,18}$'
