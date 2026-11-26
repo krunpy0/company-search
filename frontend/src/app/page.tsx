@@ -42,7 +42,7 @@ function ChatDemo({ variant }: { variant: DemoVariant }) {
           <span className="demo-search-icon" />
           <span className="demo-panel-icon" />
         </div>
-        <div className="demo-new">＋ Новый чат</div>
+        <div className="demo-new">+ Новый чат</div>
         <small>Ваши чаты</small>
         <ul>
           <li>Анализ Сбербанка</li>
