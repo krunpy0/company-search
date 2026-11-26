@@ -1,0 +1,74 @@
+.workspace-dialogues .history-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  border-radius: .75rem;
+}
+
+.workspace-dialogues .history-row:hover,
+.workspace-dialogues .history-row:focus-within,
+.history-row[data-active] { background: #292929; }
+
+.workspace-dialogues .history-row-link {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  align-content: center;
+}
+
+.workspace-dialogues .history-row-trigger {
+  justify-content: center;
+  width: 2.25rem;
+  padding: 0;
+  border: 0;
+  color: var(--text-muted);
+  background: transparent;
+}
+
+.workspace-dialogues .history-row-trigger:hover { color: var(--text); background: var(--surface-raised); }
+.workspace-dialogues .history-row :focus-visible { outline-offset: -3px; }
+.workspace-dialogues .history-menu {
+  position: fixed;
+  inset: auto;
+  width: min(12rem, calc(100vw - 1rem));
+  margin: 0;
+  max-block-size: calc(50dvh - 1rem);
+  padding: .375rem;
+  border: 1px solid var(--border);
+  border-radius: .75rem;
+  color: var(--text);
+  background: var(--surface-raised);
+}
+
+.workspace-dialogues .history-menu:popover-open { display: grid; }
+.workspace-dialogues .history-menu button { min-block-size: var(--touch-target); justify-content: flex-start; text-align: start; }
+.workspace-dialogues .history-danger { color: var(--danger); }
+
+.history-search, .history-edit { display: grid; gap: .5rem; }
+.history-input {
+  width: 100%;
+  min-block-size: var(--touch-target);
+  padding: .625rem .75rem;
+  border: 1px solid #777;
+  border-radius: .75rem;
+  font: inherit;
+}
+
+.history-search-status { color: var(--text-secondary); font-size: .875rem; }
+.history-search > .button { justify-self: start; }
+.history-results { border-block-start: 1px solid var(--border); }
+.history-results a {
+  display: flex;
+  align-items: center;
+  min-block-size: var(--touch-target);
+  padding: .625rem .5rem;
+  border-block-end: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+
+.history-results a:hover { background: var(--surface-raised); }
+
+@media (max-width: 47.9375rem) {
+  .workspace-dialogues .history-row-trigger { width: var(--touch-target); }
+}

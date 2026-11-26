@@ -1,7 +1,19 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { collectChatHistory } from "./chat-history.ts";
-import { chatMarkdown } from "./chat-markdown.ts";
+import ts from "typescript";
+
+function loadTestModule(file) {
+  const source = readFileSync(new URL(file, import.meta.url), "utf8");
+  const { outputText } = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+  });
+  return import(`data:text/javascript;base64,${Buffer.from(outputText).toString("base64")}`);
+}
+
+const [{ collectChatHistory }, { chatMarkdown }] = await Promise.all([
+  loadTestModule("./chat-history.ts"), loadTestModule("./chat-markdown.ts"),
+]);
 
 const created_at = "2026-11-27T09:00:00Z";
 const dialogue = { id: "3", created_at, updated_at: created_at };

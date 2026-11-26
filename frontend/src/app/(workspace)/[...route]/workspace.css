@@ -40,6 +40,9 @@
 }
 .workspace-new:hover { background: var(--accent-hover); }
 .workspace-history { margin-top: .75rem; color: #b4b4b4; font-size: .75rem; }
+.workspace-dialogues { min-height: 0; overflow: auto; margin-top: .25rem; }
+.workspace-dialogues a, .workspace-dialogues button { display: flex; align-items: center; min-height: 2.2rem; padding: .375rem .5rem; border-radius: .75rem; font-size: .9375rem; }
+.workspace-dialogues > .button:focus-visible { outline-offset: -3px; }
 .workspace-profile { position: relative; margin-top: auto; padding-top: 1.5rem; }
 .workspace-profile summary {
   display: flex;
@@ -129,6 +132,7 @@ main.workspace-state { min-height: 100dvh; }
   .workspace-drawer::backdrop { background: rgb(0 0 0 / 65%); }
   .workspace-drawer .workspace-sidebar { min-height: 100%; }
   .workspace-sidebar-head .workspace-icon { width: var(--touch-target); height: var(--touch-target); }
+  .workspace-dialogues a, .workspace-dialogues button { min-height: var(--touch-target); }
   .workspace-open-mobile { display: grid; }
   .workspace-new { min-height: var(--touch-target); }
   .workspace-main { background-size: 48% auto, auto 11rem; background-position: left top, right bottom; }

@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "node --test",
     "api:generate": "openapi-typescript ../backend/openapi.yaml -o src/lib/api.d.ts"
   },
   "dependencies": {
