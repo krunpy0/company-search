@@ -31,15 +31,45 @@
 .chat-wait, .chat-empty, .chat-partial { color: var(--text-secondary); }
 .chat-partial { margin-top: .75rem; }
 .chat-sources { margin-top: .75rem; color: var(--text-secondary); }
-.chat-sources summary { width: fit-content; cursor: pointer; padding-block: .5rem; }
+.chat-sources summary { width: fit-content; min-height: var(--touch-target); cursor: pointer; padding-block: .625rem; }
 .chat-sources li { display: grid; gap: .125rem; padding-block: .375rem; }
 .chat-sources a { width: fit-content; color: var(--text); text-decoration: underline; text-underline-offset: .2em; }
+.chat-answer-actions { display: flex; flex-wrap: wrap; align-items: start; gap: var(--space-2); color: var(--text-secondary); }
+.chat-answer-actions > span { align-self: center; }
+.chat-answer-menu summary {
+  display: grid;
+  place-items: center;
+  width: var(--touch-target);
+  min-height: var(--touch-target);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  list-style: none;
+}
+.chat-answer-menu summary::-webkit-details-marker { display: none; }
+.chat-answer-menu summary:hover, .chat-answer-menu[open] summary { color: var(--text); background: var(--surface-input); }
+.chat-answer-menu summary svg { width: var(--icon-md); height: var(--icon-md); }
+.chat-answer-menu ul {
+  display: grid;
+  width: fit-content;
+  max-width: 100%;
+  padding: var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-overlay);
+}
+.chat-answer-menu .button { justify-content: flex-start; width: 100%; text-align: left; }
+.chat-answer-menu .button:hover { background: var(--surface-hover); }
+.chat-candidates { display: grid; gap: var(--space-2); }
+.chat-candidates p { color: var(--text-secondary); }
+.chat-candidates ul, .chat-failure-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.chat-candidates .button { font-variant-numeric: tabular-nums; }
+.chat-failure { display: grid; gap: var(--space-2); margin-block: var(--space-2); }
+.workspace-intro .chat-failure-actions { justify-content: center; }
 .chat-older { justify-self: start; }
 .chat-footer { padding-bottom: max(1.4375rem, env(safe-area-inset-bottom)); }
 .chat-footer .workspace-question { width: 100%; margin-top: 0; }
 .chat-footer .workspace-question textarea { min-height: 6.25rem; padding: .75rem 1.125rem 3rem; border-color: transparent; background: var(--surface-input); }
 .chat-footer .workspace-question button { bottom: .75rem; }
-.chat-footer .workspace-error { margin-bottom: .5rem; }
 .workspace-question .workspace-send:hover:not(:disabled) { background: var(--accent-hover); }
 .workspace-question .workspace-send:disabled { opacity: .5; }
 .workspace-dialogues { min-height: 0; overflow: auto; margin-top: .25rem; }

@@ -159,8 +159,8 @@ export default function Home() {
             <div>
               <h3>Информация</h3>
               <ul>
-                <li><NoticeButton title="Поддержка" message="Канал поддержки пока недоступен.">Поддержка</NoticeButton></li>
-                <li><NoticeButton title="Документы" message="Политика конфиденциальности и пользовательское соглашение ожидают публикации.">Документы</NoticeButton></li>
+                <li><Link href="/help">Поддержка</Link></li>
+                <li><Link href="/help#documents">Документы</Link></li>
                 <li><a href="#top">О сервисе</a></li>
               </ul>
             </div>

@@ -1,0 +1,57 @@
+.system-screen {
+  --accent-action: #c9282f;
+  width: min(100%, 56rem);
+  margin-inline: auto;
+  padding: 2rem var(--gutter) 4rem;
+}
+
+.system-content {
+  display: grid;
+  justify-items: start;
+  gap: 1rem;
+  margin-block-start: clamp(2.5rem, 8vw, 5rem);
+  overflow-wrap: anywhere;
+}
+
+.system-content h1 {
+  font-size: clamp(1.75rem, 1.25rem + 2vw, 2.5rem);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -.025em;
+}
+
+.system-content h2 {
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.system-content p { max-inline-size: 66ch; color: var(--text-secondary); line-height: 1.5; }
+.system-content .system-section { width: 100%; margin-block-start: 1.5rem; }
+.system-section > h2 { margin-block-end: .75rem; }
+.system-section + .system-section { border-block-start: 1px solid var(--border); padding-block-start: 1.5rem; }
+.system-help-questions { border-block-end: 1px solid var(--border); }
+.system-help-questions details { border-block-start: 1px solid var(--border); }
+.system-help-questions summary { min-block-size: var(--touch-target); padding-block: .875rem; cursor: pointer; font-weight: 500; }
+.system-help-questions summary:hover { color: var(--text-secondary); }
+.system-help-questions p { padding-block-end: 1rem; }
+.system-document-links a { display: inline-flex; min-block-size: var(--touch-target); align-items: center; text-decoration: underline; text-underline-offset: .2em; }
+.system-document-links a:hover { color: var(--text-secondary); }
+.system-content .system-actions { display: flex; flex-wrap: wrap; gap: .75rem; margin-block-start: 1rem; }
+
+.system-loading-track {
+  display: block;
+  width: min(100%, 12rem);
+  height: .25rem;
+  border: 0;
+  border-radius: .5rem;
+  overflow: hidden;
+  appearance: none;
+  background: var(--surface-raised);
+}
+
+.system-loading-track::-webkit-progress-bar { background: var(--surface-raised); }
+.system-loading-track::-moz-progress-bar { background: var(--text-muted); }
+
+@media (prefers-reduced-motion: reduce) {
+  .system-loading-track { display: none; }
+}

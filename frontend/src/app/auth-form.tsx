@@ -68,6 +68,9 @@ export function AuthForm({ mode, children }: { mode: "register" | "login"; child
           {registering ? "Уже есть аккаунт?" : "Нет аккаунта?"}{" "}
           <Link href={registering ? "/login" : "/register"}>{registering ? "Войти" : "Зарегистрироваться"}</Link>
         </p>
+        {registering && <p className="auth-switch">
+          <Link href="/privacy">Политика конфиденциальности</Link> · <Link href="/terms">Пользовательское соглашение</Link>
+        </p>}
       </section>
     </main>
   );

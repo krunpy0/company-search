@@ -1,0 +1,17 @@
+.feedback-draft, .feedback-field { display: grid; gap: .5rem; min-width: 0; }
+.feedback-draft { gap: 1rem; }
+
+.feedback-field textarea {
+  max-inline-size: 100%;
+  min-block-size: 4rem;
+  padding: .75rem;
+  border: 1px solid #777;
+  border-radius: .75rem;
+  resize: vertical;
+}
+
+.feedback-opt-in { display: flex; align-items: center; gap: .75rem; min-block-size: var(--touch-target); cursor: pointer; }
+.feedback-opt-in input { inline-size: 1.125rem; block-size: 1.125rem; margin: 0; accent-color: var(--accent-action); }
+.feedback-preview { color: var(--text-secondary); }
+.feedback-actions { display: grid; justify-items: start; }
+.feedback-copy-status:not(:empty) { margin-block-start: .5rem; }
