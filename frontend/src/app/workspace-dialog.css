@@ -14,6 +14,7 @@
   background: var(--surface-overlay, #151515);
   border: 1px solid var(--border);
   border-radius: 1rem;
+  box-shadow: var(--shadow-overlay);
   font: inherit;
   line-height: 1.5;
   overflow-wrap: anywhere;
@@ -47,6 +48,7 @@
   background: transparent;
   border: 0;
   border-radius: .75rem;
+  transition: background-color var(--motion-fast) var(--motion-ease), color var(--motion-fast) var(--motion-ease);
 }
 
 .workspace-dialog-close:hover {
@@ -76,6 +78,16 @@
   margin-block-start: 1.25rem;
 }
 
+.workspace-dialog .button-outline {
+  background: var(--surface-raised);
+  border-color: var(--border-strong);
+}
+
+.workspace-dialog .button-outline:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: var(--border-control);
+}
+
 .workspace-dialog .button:disabled {
   cursor: default;
   opacity: .5;
@@ -83,4 +95,10 @@
 
 .workspace-dialog .button-primary:disabled:hover {
   background: var(--accent-action);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-dialog-close {
+    transition: none;
+  }
 }

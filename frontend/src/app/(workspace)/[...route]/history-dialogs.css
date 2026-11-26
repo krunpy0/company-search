@@ -35,15 +35,31 @@
   margin: 0;
   max-block-size: calc(50dvh - 1rem);
   padding: .375rem;
+  gap: 2px;
   border: 1px solid var(--border);
-  border-radius: .75rem;
+  border-radius: var(--radius-md);
   color: var(--text);
-  background: var(--surface-raised);
+  background: var(--surface-overlay);
+  box-shadow: var(--shadow-overlay);
 }
 
 .workspace-dialogues .history-menu:popover-open { display: grid; }
-.workspace-dialogues .history-menu button { min-block-size: var(--touch-target); justify-content: flex-start; text-align: start; }
-.workspace-dialogues .history-danger { color: var(--danger); }
+.workspace-dialogues .history-menu button {
+  width: 100%;
+  min-block-size: var(--touch-target);
+  padding: .5rem .75rem;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-small);
+  justify-content: flex-start;
+  text-align: start;
+  text-decoration: none;
+}
+.workspace-dialogues .history-menu button:hover {
+  background: var(--surface-hover);
+  text-decoration: none;
+}
+.workspace-dialogues .history-menu .history-danger { color: var(--danger); }
+.workspace-dialogues .history-menu .history-danger:hover { background: rgb(239 68 68 / 12%); }
 
 .history-search, .history-edit { display: grid; gap: .5rem; }
 .history-input {
