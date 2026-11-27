@@ -1,12 +1,35 @@
 .auth-screen {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
   min-height: 100dvh;
   display: grid;
   grid-template-rows: auto 1fr;
   padding: clamp(1rem, 3.5vw, 3rem);
-  background: #0a0a0a;
+  background: var(--glow-hero), var(--bg);
 }
-.auth-screen > .brand { min-height: var(--touch-target); }
+.auth-screen::before,
+.auth-screen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+.auth-screen::before {
+  background: url("/landing/hero-branch-left.webp") left top / clamp(15rem, 32vw, 32rem) auto no-repeat;
+}
+.auth-screen::after {
+  background: url("/landing/hero-branch-right.webp") right bottom / clamp(13rem, 28vw, 27rem) auto no-repeat;
+}
+.auth-screen > .brand {
+  position: relative;
+  z-index: 1;
+  min-height: var(--touch-target);
+}
 .auth-card {
+  position: relative;
+  z-index: 1;
   align-self: center;
   justify-self: center;
   width: min(100%, 27rem);
@@ -29,3 +52,19 @@
 .auth-notice { margin-top: .75rem; }
 .auth-switch { margin-top: 1rem; }
 .auth-switch a { color: var(--text); text-decoration: underline; text-underline-offset: .2em; }
+
+@media (max-width: 47.9375rem) {
+  .auth-screen::before {
+    background-size: min(52vw, 15rem) auto;
+    opacity: .85;
+  }
+  .auth-screen::after {
+    background-size: min(44vw, 13rem) auto;
+    opacity: .75;
+  }
+}
+
+@media (max-width: 29.9375rem) {
+  .auth-screen::before { opacity: .55; }
+  .auth-screen::after { opacity: .45; }
+}

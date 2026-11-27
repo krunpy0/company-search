@@ -11,7 +11,7 @@ REVOKE ALL ON ALL TABLES IN SCHEMA accounts FROM company_importer;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA accounts FROM company_importer;
 GRANT USAGE ON SCHEMA accounts TO company_api;
 GRANT SELECT, INSERT, DELETE ON accounts.users TO company_api;
-GRANT UPDATE (email, password_hash, display_name, avatar) ON accounts.users TO company_api;
+GRANT UPDATE (email, password_hash, display_name, avatar, reset_token_hash, reset_expires_at) ON accounts.users TO company_api;
 GRANT SELECT, INSERT, DELETE ON accounts.sessions TO company_api;
 GRANT SELECT, INSERT, UPDATE ON accounts.external_usage, accounts.external_credentials TO company_api;
 GRANT SELECT, INSERT, UPDATE ON accounts.chat_dialogues, accounts.chat_message_usage, accounts.model_token_usage TO company_api;

@@ -35,10 +35,10 @@ func accountPassword(password string) bool {
 }
 
 func RegisterAuth(r *gin.Engine, pool *pgxpool.Pool) gin.HandlerFunc {
-	return RegisterAuthWithLimiters(r, pool, nil)
+	return RegisterAuthWithLimiters(r, pool, nil, nil)
 }
 
-func RegisterAuthWithLimiters(r *gin.Engine, pool *pgxpool.Pool, limiters *RateLimiters) gin.HandlerFunc {
+func RegisterAuthWithLimiters(r *gin.Engine, pool *pgxpool.Pool, limiters *RateLimiters, sendReset PasswordResetSender) gin.HandlerFunc {
 	if limiters == nil {
 		limiters = NewRateLimiters(DefaultRateLimitConfig())
 	}
@@ -76,6 +76,7 @@ func RegisterAuthWithLimiters(r *gin.Engine, pool *pgxpool.Pool, limiters *RateL
 			fail(c, 429, "busy", "Too many concurrent authentication requests")
 		}
 	}
+	registerPasswordReset(group, pool, limiters.Auth(), bounded, sendReset)
 	group.POST("/register", limiters.Auth(), bounded, func(c *gin.Context) {
 		email, password, ok := credentials(c)
 		if !ok {

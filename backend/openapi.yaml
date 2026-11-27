@@ -51,6 +51,51 @@ paths:
               schema: {$ref: '#/components/schemas/Error'}
         '429': {$ref: '#/components/responses/AuthBusy'}
         '503': {$ref: '#/components/responses/AuthUnavailable'}
+  /v1/auth/password-reset/request:
+    post:
+      operationId: requestPasswordReset
+      summary: Request a password reset link by email.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: {type: string, format: email, maxLength: 254}
+      responses:
+        '202':
+          description: Request accepted regardless of account existence. Links expire after 30 minutes.
+        '400': {$ref: '#/components/responses/InvalidCredentialsInput'}
+        '429': {$ref: '#/components/responses/AuthBusy'}
+        '503': {$ref: '#/components/responses/AuthUnavailable'}
+  /v1/auth/password-reset/confirm:
+    post:
+      operationId: confirmPasswordReset
+      summary: Consume a reset token, update the password and revoke all sessions.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, password]
+              properties:
+                token: {type: string, pattern: '^[A-Za-z0-9_-]{43}$'}
+                password: {type: string, format: password, description: 12 to 72 UTF-8 bytes.}
+      responses:
+        '204':
+          description: Password updated.
+        '400':
+          description: Invalid password or invalid, expired, or already used reset token.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '429': {$ref: '#/components/responses/AuthBusy'}
+        '503': {$ref: '#/components/responses/AuthUnavailable'}
   /v1/auth/logout:
     post:
       operationId: logoutUser

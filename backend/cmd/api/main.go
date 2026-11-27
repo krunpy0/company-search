@@ -92,7 +92,12 @@ func main() {
 		slog.Error("DADATA_REGISTRY_DETAILS_ENABLED requires a boolean and DaData must be enabled to use it")
 		os.Exit(1)
 	}
-	session := httpapi.RegisterAuthWithLimiters(r, pool, limiters)
+	sendReset, err := configurePasswordReset(os.Getenv)
+	if err != nil {
+		slog.Error("invalid password reset configuration", "error", err)
+		os.Exit(1)
+	}
+	session := httpapi.RegisterAuthWithLimiters(r, pool, limiters, sendReset)
 	authenticated := r.Group("", session)
 	httpapi.RegisterCompaniesWithLimiters(authenticated, pool, lookup, registryDetails, limiters)
 	chatService, err := configureChat(pool, lookup)

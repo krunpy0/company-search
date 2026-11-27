@@ -2,8 +2,9 @@ import { Suspense } from "react";
 import { AuthForm } from "../auth-form";
 
 async function LoginNotice({ searchParams }: PageProps<"/login">) {
-  const { registered, expired } = await searchParams;
+  const { registered, expired, reset } = await searchParams;
   const notice = registered === "1" ? "Аккаунт создан. Войдите с указанным email и паролем."
+    : reset === "1" ? "Пароль обновлён. Войдите с новым паролем."
     : expired === "1" ? "Сессия закончилась. Войдите снова. Черновик останется в этой вкладке."
     : undefined;
   return notice ? <p className="auth-notice">{notice}</p> : null;

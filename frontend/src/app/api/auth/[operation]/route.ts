@@ -15,15 +15,28 @@ function failure(status: number, code: string, retryAfter?: string | null) {
 }
 
 function credentials(value: unknown): components["schemas"]["Credentials"] | undefined {
-  if (!value || typeof value !== "object" || !("email" in value) || !("password" in value)) return;
-  const { email, password } = value;
-  if (typeof email !== "string" || typeof password !== "string" || !passwordFits(password)) return;
-  const normalizedEmail = email.trim();
-  if (new TextEncoder().encode(normalizedEmail).length > 254 || !/^[^\s@]+@[^\s@]+$/.test(normalizedEmail)) return;
-  return { email: normalizedEmail, password };
+  const email = emailInput(value);
+  if (!email || !value || typeof value !== "object" || !("password" in value)) return;
+  if (typeof value.password !== "string" || !passwordFits(value.password)) return;
+  return { email, password: value.password };
+}
+
+function emailInput(value: unknown) {
+  if (!value || typeof value !== "object" || !("email" in value) || typeof value.email !== "string") return;
+  const email = value.email.trim();
+  if (new TextEncoder().encode(email).length <= 254 && /^[^\s@]+@[^\s@]+$/.test(email)) return email;
+}
+
+function resetCredentials(value: unknown) {
+  if (!value || typeof value !== "object" || !("token" in value) || !("password" in value)) return;
+  const { token, password } = value;
+  if (typeof token !== "string" || !/^[\w-]{43}$/.test(token)) return;
+  if (typeof password !== "string" || !passwordFits(password)) return;
+  return { token, password };
 }
 
 function backendFailure(response: Response, code?: string) {
+  if (response.status === 400 && code === "invalid_reset_token") return failure(400, code);
   if (response.status === 400) return failure(400, "invalid_input");
   if (response.status === 401 && code === "invalid_credentials") return failure(401, code);
   if (response.status === 409 && code === "email_in_use") return failure(409, code);
@@ -41,7 +54,8 @@ export async function GET(_request: NextRequest, { params }: RouteContext<"/api/
 
 export async function POST(request: NextRequest, { params }: RouteContext<"/api/auth/[operation]">) {
   const { operation } = await params;
-  if (operation !== "login" && operation !== "register" && operation !== "logout") {
+  if (operation !== "login" && operation !== "register" && operation !== "logout" &&
+      operation !== "request-password-reset" && operation !== "confirm-password-reset") {
     return failure(404, "not_found");
   }
 
@@ -69,6 +83,25 @@ export async function POST(request: NextRequest, { params }: RouteContext<"/api/
 
     const input = await readJSON(request, 4096);
     if (input === undefined) return failure(413, "payload_too_large");
+
+    if (operation === "request-password-reset") {
+      const email = emailInput(input);
+      if (!email) return failure(400, "invalid_input");
+      const { response, error } = await backend().POST("/v1/auth/password-reset/request", { body: { email } });
+      if (response.status !== 202) return backendFailure(response, error?.error?.code);
+      return new NextResponse(null, { status: 202, headers: noStore });
+    }
+
+    if (operation === "confirm-password-reset") {
+      const body = resetCredentials(input);
+      if (!body) return failure(400, "invalid_input");
+      const { response, error } = await backend().POST("/v1/auth/password-reset/confirm", { body });
+      if (response.status !== 204) return backendFailure(response, error?.error?.code);
+      const result = new NextResponse(null, { status: 204, headers: noStore });
+      result.cookies.set(sessionCookie, "", { ...cookieOptions, maxAge: 0 });
+      return result;
+    }
+
     const body = credentials(input);
     if (!body) return failure(400, "invalid_input");
 

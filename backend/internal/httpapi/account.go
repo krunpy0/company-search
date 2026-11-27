@@ -81,6 +81,7 @@ func registerAccount(group *gin.RouterGroup, pool *pgxpool.Pool, bounded gin.Han
 			}
 			err = withAccountPassword(c, pool, user, input.CurrentPassword, func(tx pgx.Tx, _ []byte) error {
 				updated, err := readAccountProfile(tx.QueryRow(ctx, `UPDATE accounts.users SET email=$2,
+					reset_token_hash=NULL, reset_expires_at=NULL,
 					display_name=COALESCE($3, display_name) WHERE id=$1 RETURNING `+profileColumns,
 					user, email, input.DisplayName))
 				profile = updated
@@ -108,7 +109,8 @@ func registerAccount(group *gin.RouterGroup, pool *pgxpool.Pool, bounded gin.Han
 			if err != nil {
 				return err
 			}
-			if _, err := tx.Exec(ctx, "UPDATE accounts.users SET password_hash=$2 WHERE id=$1", user, hash); err != nil {
+			if _, err := tx.Exec(ctx, `UPDATE accounts.users SET password_hash=$2,
+				reset_token_hash=NULL, reset_expires_at=NULL WHERE id=$1`, user, hash); err != nil {
 				return err
 			}
 			_, err = tx.Exec(ctx, "DELETE FROM accounts.sessions WHERE user_id=$1 AND token_hash<>$2", user, session)
