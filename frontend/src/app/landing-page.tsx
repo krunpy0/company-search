@@ -11,6 +11,21 @@ const features: { title: ReactNode; description: ReactNode; demo: DemoVariant }[
   { title: <>Уточните детали <br />в чате</>, description: "Продолжайте диалог по той же компании.", demo: "followup" },
 ];
 
+type PlanId = "free" | "pro";
+
+type PlanMeta = {
+  id: PlanId;
+  name: string;
+  tag?: string;
+  price: string;
+  caption: string;
+};
+
+const plans: PlanMeta[] = [
+  { id: "free", name: "Бесплатно", price: "0 ₽", caption: "Для разовых проверок" },
+  { id: "pro", name: "Pro", tag: "Скоро", price: "1 950 ₽", caption: "Для регулярной работы" },
+];
+
 type PlanCell = {
   label: string;
   emphasis?: boolean;
@@ -51,6 +66,38 @@ const planRows: { feature: string; free: PlanCell; pro: PlanCell }[] = [
   },
 ];
 
+function planItems(id: PlanId): { label: string; emphasis?: boolean }[] {
+  if (id === "free") {
+    return planRows
+      .filter((row) => !row.free.muted)
+      .map((row) => ({
+        label: row.free.emphasis ? `${row.feature}: ${row.free.label}` : row.feature,
+        emphasis: row.free.emphasis,
+      }));
+  }
+  const chatRow = planRows[0];
+  return [
+    { label: `${chatRow.feature}: ${chatRow.pro.label}`, emphasis: true },
+    { label: "Все возможности тарифа «Бесплатно»" },
+    ...planRows
+      .filter((row) => row.free.muted && !row.pro.muted)
+      .map((row) => ({ label: row.feature })),
+  ];
+}
+
+function PlanHeader({ plan, heading = false }: { plan: PlanMeta; heading?: boolean }) {
+  return (
+    <>
+      <div className="plan-head">
+        {heading ? <h3 className="plan-name">{plan.name}</h3> : <span className="plan-name">{plan.name}</span>}
+        {plan.tag && <span className="plan-tag">{plan.tag}</span>}
+      </div>
+      <span className="price">{plan.price} <small>/ месяц</small></span>
+      <span className="plan-caption">{plan.caption}</span>
+    </>
+  );
+}
+
 function PlanCheckIcon() {
   return (
     <svg className="plan-check" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
@@ -65,6 +112,17 @@ function PlanValue({ cell }: { cell: PlanCell }) {
       {cell.included && <PlanCheckIcon />}
       {cell.muted ? <span aria-label="Не включено">—</span> : cell.label}
     </span>
+  );
+}
+
+function PlanAction({ id }: { id: "free" | "pro" }) {
+  if (id === "free") {
+    return <Link className="button button-outline" href="/chat?start=1" prefetch={false}>Начать бесплатно</Link>;
+  }
+  return (
+    <NoticeButton variant="primary" title="Тариф Pro" message="Цена и условия тарифа ожидают подтверждения. Подключение пока недоступно.">
+      Подключить Pro
+    </NoticeButton>
   );
 }
 
@@ -167,21 +225,11 @@ export function LandingPage() {
               <thead>
                 <tr>
                   <th scope="col" className="pricing-corner">Что входит</th>
-                  <th scope="col" className="plan-col">
-                    <div className="plan-head">
-                      <span className="plan-name">Бесплатно</span>
-                    </div>
-                    <span className="price">0 ₽ <small>/ месяц</small></span>
-                    <span className="plan-caption">Для разовых проверок</span>
-                  </th>
-                  <th scope="col" className="plan-col plan-pro">
-                    <div className="plan-head">
-                      <span className="plan-name">Pro</span>
-                      <span className="plan-tag">Скоро</span>
-                    </div>
-                    <span className="price">1 950 ₽ <small>/ месяц</small></span>
-                    <span className="plan-caption">Для регулярной работы</span>
-                  </th>
+                  {plans.map((plan) => (
+                    <th key={plan.id} scope="col" className={`plan-col${plan.id === "pro" ? " plan-pro" : ""}`}>
+                      <PlanHeader plan={plan} />
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
@@ -196,11 +244,34 @@ export function LandingPage() {
               <tfoot>
                 <tr>
                   <td className="pricing-corner" />
-                  <td><Link className="button button-outline" href="/chat?start=1" prefetch={false}>Начать бесплатно</Link></td>
-                  <td className="plan-pro"><NoticeButton variant="primary" title="Тариф Pro" message="Цена и условия тарифа ожидают подтверждения. Подключение пока недоступно.">Подключить Pro</NoticeButton></td>
+                  {plans.map((plan) => (
+                    <td key={plan.id} className={plan.id === "pro" ? "plan-pro" : undefined}>
+                      <PlanAction id={plan.id} />
+                    </td>
+                  ))}
                 </tr>
               </tfoot>
             </table>
+          </div>
+          <div className="pricing-cards" aria-describedby="pricing-note">
+            {plans.map((plan) => (
+              <article className={`pricing-card${plan.id === "pro" ? " is-pro" : ""}`} key={plan.id}>
+                <div className="pricing-card-head">
+                  <PlanHeader plan={plan} heading />
+                </div>
+                <ul className="pricing-card-list">
+                  {planItems(plan.id).map(({ label, emphasis }) => (
+                    <li key={label} className={emphasis ? "is-emphasis" : undefined}>
+                      <PlanCheckIcon />
+                      <span>{label}</span>
+                    </li>
+                  ))}
+                </ul>
+                <div className="pricing-card-action">
+                  <PlanAction id={plan.id} />
+                </div>
+              </article>
+            ))}
           </div>
           <p className="pricing-note" id="pricing-note">Цена и условия Pro ожидают подтверждения.</p>
         </section>

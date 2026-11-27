@@ -42,8 +42,11 @@ const failureMessages: Record<string, string> = {
   model_unavailable: "Модель чата временно недоступна. Можно повторить отправку.",
   turn_in_progress: "В этом диалоге уже готовится ответ. Проверьте историю перед повтором.",
   busy: "Чат сейчас занят. Попробуйте отправить сообщение чуть позже.",
+  rate_limited: "Слишком много запросов. Подождите немного и повторите отправку.",
   checked: "История обновлена. Ответ на это сообщение пока не найден. Вы можете повторить отправку.",
   invalid_message: "Введите вопрос длиной до 2000 символов.",
+  invalid_message_id: "Некорректный идентификатор сообщения. Отправьте сообщение ещё раз.",
+  message_id_conflict: "Идентификатор запроса уже использован для другого сообщения. Отправьте сообщение ещё раз.",
   dialogue_not_found: "Диалог не найден.",
   registration_selection_required: "Выберите регистрацию из актуального списка.",
   history_check_failed: "Не удалось проверить историю. Повторите проверку, чтобы узнать, сохранился ли ответ.",
@@ -312,8 +315,8 @@ function ChatThread({ initialId, company, onDialogue, onNewChat }: Props) {
       if (missing(error)) {
         setHistory({ kind: "missing" });
       } else if (code === "message_id_conflict" || code === "invalid_message_id") {
-        setFailure({ kind: "notice", code: "invalid_message", requestId });
-      } else if (started && target && !["invalid_message", "model_unavailable", "busy", "message_budget_exhausted", "token_budget_exhausted", "invalid_session", "invalid_origin"].includes(code)) {
+        setFailure({ kind: "notice", code, requestId });
+      } else if (started && target && !["invalid_message", "model_unavailable", "busy", "rate_limited", "message_budget_exhausted", "token_budget_exhausted", "invalid_session", "invalid_origin"].includes(code)) {
         setPending(undefined);
         await reconcile({ attempt, id: target, boundary }, requestId, code);
       } else if (code !== "invalid_session") {
