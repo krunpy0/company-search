@@ -452,65 +452,130 @@ button { cursor: pointer; }
   margin: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
-  overflow-x: auto;
-  background: #0d0c0d;
+  overflow: hidden;
+  background: var(--surface-card);
 }
 .pricing table {
   width: 100%;
   table-layout: fixed;
   border-collapse: collapse;
   text-align: left;
-  font-size: clamp(1rem, 1.55vw, 1.5625rem);
-  line-height: 1.3;
+  font-size: var(--font-body);
+  line-height: var(--leading-body);
   font-variant-numeric: tabular-nums;
 }
 .pricing th, .pricing td {
-  border: 1px solid var(--border);
-  padding: 1.125rem clamp(1.25rem, 3vw, 3rem);
+  padding: 1.125rem clamp(1.25rem, 2.5vw, 2.5rem);
+  border: 0;
 }
-.pricing tr > :first-child { width: 34%; border-left: 0; }
-.pricing tr > :last-child { border-right: 0; }
-.pricing thead > tr > * { border-top: 0; padding-block: 1.5rem 1.65rem; }
+.pricing tr > :first-child { width: 40%; }
+.pricing .plan-pro {
+  background: rgb(255 255 255 / 0.025);
+  border-left: 1px solid var(--border-subtle);
+}
+.pricing thead tr {
+  border-bottom: 1px solid var(--border);
+}
 .pricing thead th {
+  vertical-align: bottom;
+  padding-block: 1.75rem 1.5rem;
+}
+.pricing thead .pricing-corner {
+  color: var(--text-muted);
+  font-size: var(--font-small);
+  font-weight: var(--weight-medium);
+}
+.pricing thead .plan-col {
   vertical-align: top;
+}
+.plan-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: .5rem;
+}
+.plan-name {
+  font-size: clamp(1.125rem, 1.5vw, 1.5rem);
   font-weight: var(--weight-semibold);
-  font-size: clamp(1.125rem, 1.7vw, 1.75rem);
+  color: var(--text);
+}
+.plan-tag {
+  font-size: var(--font-caption);
+  font-weight: var(--weight-medium);
+  color: var(--text-muted);
 }
 .price {
   display: block;
   font-size: var(--font-price);
   font-weight: var(--weight-bold);
   line-height: var(--leading-tight);
-  margin-top: .35rem;
+  margin-top: .5rem;
 }
 .price small {
-  font-size: clamp(1rem, 1.35vw, 1.5rem);
+  font-size: clamp(.9375rem, 1.1vw, 1.125rem);
   font-weight: var(--weight-regular);
   white-space: nowrap;
   color: var(--text-secondary);
 }
+.plan-caption {
+  display: block;
+  margin-top: .5rem;
+  font-size: var(--font-small);
+  font-weight: var(--weight-regular);
+  color: var(--text-secondary);
+}
 @media (min-width: 62.01rem) {
   .price { white-space: nowrap; }
-  .pricing thead th:nth-child(2) { width: 33%; }
+  .pricing thead th:nth-child(2) { width: 30%; }
+  .pricing thead th:nth-child(3) { width: 30%; }
 }
-.pricing tbody th { font-weight: var(--weight-regular); color: var(--text); }
-.pricing tbody td { font-weight: var(--weight-semibold); }
-.pricing tbody tr:first-child td {
-  font-size: clamp(1.5rem, 2.15vw, 2.1875rem);
-  padding-block: .85rem;
+.pricing tbody tr {
+  border-bottom: 1px solid var(--border-subtle);
+}
+.pricing tbody tr:last-child {
+  border-bottom: 0;
+}
+.pricing tbody th {
+  font-weight: var(--weight-regular);
+  color: var(--text-secondary);
+}
+.pricing tbody td {
+  color: var(--text);
+}
+.plan-value {
+  display: inline-flex;
+  align-items: center;
+  gap: .5rem;
+  font-weight: var(--weight-medium);
+}
+.plan-value.is-emphasis {
+  font-size: var(--font-body-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--text);
+}
+.plan-value.is-muted {
+  color: var(--text-muted);
+}
+.plan-check {
+  width: var(--icon-sm);
+  height: var(--icon-sm);
+  flex: none;
+  color: var(--text-secondary);
+}
+.pricing tfoot tr {
+  border-top: 1px solid var(--border);
 }
 .pricing tfoot td {
-  padding: 1.375rem clamp(1.25rem, 3vw, 3rem);
-  border-bottom: 0;
+  padding: 1.375rem clamp(1.25rem, 2.5vw, 2.5rem);
 }
 .pricing tfoot .button {
   width: 100%;
-  min-height: 4.25rem;
-  font-size: 1.25rem;
+  min-height: var(--control-height-lg);
+  font-size: var(--font-body);
   font-weight: var(--weight-semibold);
   border-radius: var(--radius-md);
 }
-.pricing-note { text-align: center; color: var(--text-muted); margin-top: 1.25rem; font-size: 1rem; }
+.pricing-note { text-align: center; color: var(--text-muted); margin-top: 1.25rem; font-size: var(--font-small); }
 
 .footer {
   position: relative;
@@ -647,10 +712,63 @@ button { cursor: pointer; }
   .templates p { font-size: var(--font-small); }
   .templates button { min-height: var(--touch-target); padding: .5rem 1.25rem; font-size: var(--font-small); }
   .feature-copy br { display: none; }
-  .pricing table { min-width: 26rem; }
-  .pricing th, .pricing td, .pricing tfoot td { padding: .85rem .75rem; }
+  .pricing table,
+  .pricing thead,
+  .pricing tbody,
+  .pricing tfoot { display: block; }
+  .pricing .pricing-corner { display: none; }
+  .pricing tr > :first-child { width: auto; }
+  .pricing thead tr,
+  .pricing tbody tr,
+  .pricing tfoot tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .pricing thead th {
+    padding: 1.25rem .875rem;
+  }
+  .pricing thead th.plan-pro {
+    background: transparent;
+  }
+  .pricing .plan-head {
+    flex-wrap: wrap;
+    gap: .25rem .5rem;
+  }
+  .pricing .plan-caption {
+    font-size: var(--font-caption);
+  }
+  .pricing tbody tr {
+    gap: .375rem .75rem;
+    padding: .875rem;
+  }
+  .pricing tbody th {
+    grid-column: 1 / -1;
+    padding: 0;
+    font-size: var(--font-small);
+  }
+  .pricing tbody td {
+    padding: 0;
+    font-size: var(--font-small);
+  }
+  .pricing tbody td.plan-pro {
+    background: transparent;
+    border-left: 1px solid var(--border-subtle);
+    padding-left: .875rem;
+  }
+  .pricing .plan-value.is-emphasis { font-size: var(--font-body); }
+  .pricing tfoot tr {
+    gap: .75rem;
+    padding: .875rem;
+  }
+  .pricing tfoot td {
+    padding: 0;
+  }
+  .pricing tfoot td.plan-pro {
+    background: transparent;
+    border-left: 0;
+  }
   .price small { display: block; }
-  .pricing tfoot .button { min-height: var(--control-height); padding-inline: .75rem; font-size: var(--font-small); }
+  .pricing tfoot .button { min-height: var(--touch-target); padding-inline: .75rem; font-size: var(--font-small); }
   .footer::before { opacity: .45; background-size: min(60%, 18rem) auto; }
   .copyright { width: 100%; font-size: var(--font-small); }
   .footer-links { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.5rem .75rem; font-size: var(--font-body); }
@@ -684,8 +802,8 @@ button { cursor: pointer; }
   .demo-main { font-size: .875rem; padding: 1rem; min-height: 0; }
   .chat-search .demo-main { font-size: .8125rem; padding: 1.25rem .75rem; background-size: 32% auto, auto; }
   .chat-search .demo-input { width: 96%; }
-  .pricing table { font-size: var(--font-small); }
-  .price { font-size: 1.625rem; }
+  .price { font-size: 1.5rem; }
+  .pricing tfoot tr { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (prefers-reduced-motion: reduce) {

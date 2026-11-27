@@ -11,12 +11,62 @@ const features: { title: ReactNode; description: ReactNode; demo: DemoVariant }[
   { title: <>Уточните детали <br />в чате</>, description: "Продолжайте диалог по той же компании.", demo: "followup" },
 ];
 
-const planRows = [
-  ["Запросов в день", "5", "100"],
-  ["Официальные данные", "Включены", "Включены"],
-  ["Приоритетная обработка", "—", "Включена"],
-  ["Пополнение кредитов", "—", "Доступно"],
+type PlanCell = {
+  label: string;
+  emphasis?: boolean;
+  muted?: boolean;
+  included?: boolean;
+};
+
+const planRows: { feature: string; free: PlanCell; pro: PlanCell }[] = [
+  {
+    feature: "Сообщения в ИИ-чате",
+    free: { label: "5 в день", emphasis: true },
+    pro: { label: "100 в день", emphasis: true },
+  },
+  {
+    feature: "Поиск по ИНН, ОГРН и названию",
+    free: { label: "Доступен", included: true },
+    pro: { label: "Доступен", included: true },
+  },
+  {
+    feature: "Данные ФНС, МСП и ссылки на источники",
+    free: { label: "Включены", included: true },
+    pro: { label: "Включены", included: true },
+  },
+  {
+    feature: "История диалогов и экспорт отчёта",
+    free: { label: "Включены", included: true },
+    pro: { label: "Включены", included: true },
+  },
+  {
+    feature: "Приоритетная обработка",
+    free: { label: "—", muted: true },
+    pro: { label: "Включена", included: true },
+  },
+  {
+    feature: "Пополнение кредитов",
+    free: { label: "—", muted: true },
+    pro: { label: "Доступно", included: true },
+  },
 ];
+
+function PlanCheckIcon() {
+  return (
+    <svg className="plan-check" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3.5 8.5 6.5 11.5 12.5 4.5" />
+    </svg>
+  );
+}
+
+function PlanValue({ cell }: { cell: PlanCell }) {
+  return (
+    <span className={`plan-value${cell.emphasis ? " is-emphasis" : ""}${cell.muted ? " is-muted" : ""}`}>
+      {cell.included && <PlanCheckIcon />}
+      {cell.muted ? <span aria-label="Не включено">—</span> : cell.label}
+    </span>
+  );
+}
 
 function Brand() {
   return <a className="brand" href="#top">{productName}</a>;
@@ -116,21 +166,38 @@ export function LandingPage() {
             <table aria-describedby="pricing-note">
               <thead>
                 <tr>
-                  <td />
-                  <th scope="col">Бесплатно<span className="price">0 ₽ <small>/ месяц</small></span></th>
-                  <th scope="col">Pro<span className="price">1 950 ₽ <small>/ месяц</small></span></th>
+                  <th scope="col" className="pricing-corner">Что входит</th>
+                  <th scope="col" className="plan-col">
+                    <div className="plan-head">
+                      <span className="plan-name">Бесплатно</span>
+                    </div>
+                    <span className="price">0 ₽ <small>/ месяц</small></span>
+                    <span className="plan-caption">Для разовых проверок</span>
+                  </th>
+                  <th scope="col" className="plan-col plan-pro">
+                    <div className="plan-head">
+                      <span className="plan-name">Pro</span>
+                      <span className="plan-tag">Скоро</span>
+                    </div>
+                    <span className="price">1 950 ₽ <small>/ месяц</small></span>
+                    <span className="plan-caption">Для регулярной работы</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {planRows.map(([label, free, pro]) => (
-                  <tr key={label}><th scope="row">{label}</th><td>{free}</td><td>{pro}</td></tr>
+                {planRows.map(({ feature, free, pro }) => (
+                  <tr key={feature}>
+                    <th scope="row">{feature}</th>
+                    <td><PlanValue cell={free} /></td>
+                    <td className="plan-pro"><PlanValue cell={pro} /></td>
+                  </tr>
                 ))}
               </tbody>
               <tfoot>
                 <tr>
-                  <td />
+                  <td className="pricing-corner" />
                   <td><Link className="button button-outline" href="/chat?start=1" prefetch={false}>Начать бесплатно</Link></td>
-                  <td><NoticeButton variant="primary" title="Тариф Pro" message="Цена и условия тарифа ожидают подтверждения. Подключение пока недоступно.">Подключить Pro</NoticeButton></td>
+                  <td className="plan-pro"><NoticeButton variant="primary" title="Тариф Pro" message="Цена и условия тарифа ожидают подтверждения. Подключение пока недоступно.">Подключить Pro</NoticeButton></td>
                 </tr>
               </tfoot>
             </table>
