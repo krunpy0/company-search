@@ -348,7 +348,9 @@ paths:
     post:
       operationId: sendChatMessage
       summary: Ask a question and wait for the full answer or a registration choice.
-      description: If the dialogue has candidates, send a candidate registration as the entire message to resume the original question.
+      description: |
+        If the dialogue has candidates, send a candidate registration as the entire message to resume the original question.
+        Reuse client_message_id when retrying the same submission. A persisted turn is returned without running the model or charging its quotas again.
       requestBody:
         required: true
         content:
@@ -358,9 +360,10 @@ paths:
               required: [content]
               properties:
                 content: {type: string, minLength: 1, maxLength: 2000}
+                client_message_id: {$ref: '#/components/schemas/ChatMessageId'}
       responses:
         '201':
-          description: Completed turn saved.
+          description: Completed turn saved or returned from an earlier submission with the same ID.
           content:
             application/json:
               schema: {$ref: '#/components/schemas/ChatTurn'}
@@ -368,7 +371,7 @@ paths:
         '401': {$ref: '#/components/responses/SessionRequired'}
         '404': {$ref: '#/components/responses/ChatNotFound'}
         '409':
-          description: Another turn is already running in this dialogue (turn_in_progress).
+          description: A turn is already running (turn_in_progress) or the message ID was already used for different content (message_id_conflict).
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
@@ -753,6 +756,10 @@ components:
     ChatId:
       type: string
       pattern: '^[1-9][0-9]{0,18}$'
+    ChatMessageId:
+      type: string
+      format: uuid
+      pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
     ChatRegistration:
       type: string
       pattern: '^(reg:)?([0-9]{13}|[0-9]{15})$'
@@ -774,6 +781,7 @@ components:
       properties:
         id: {$ref: '#/components/schemas/ChatId'}
         question: {type: string}
+        client_message_id: {$ref: '#/components/schemas/ChatMessageId'}
         answer: {$ref: '#/components/schemas/ChatAnswer'}
         created_at: {type: string, format: date-time}
     ChatAnswer:

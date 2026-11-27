@@ -67,6 +67,7 @@ func TestChatHTTP(t *testing.T) {
 	resume := make(chan struct{})
 	var observedFollowup atomic.Bool
 	var titleCalls atomic.Int32
+	var retryTitleCalls atomic.Int32
 	mainStarted, allowMain := make(chan struct{}), make(chan struct{})
 	var startMain sync.Once
 	refPattern := regexp.MustCompile(`"(?:fns|dadata)-[0-9]+"`)
@@ -87,7 +88,7 @@ func TestChatHTTP(t *testing.T) {
 		last := req.Messages[len(req.Messages)-1]
 		if len(req.Tools) == 0 {
 			titleCalls.Add(1)
-			if last.Content == "Задолженность" {
+			if last.Content == "Задолженность" || (last.Content == "Заголовок с повтором" && retryTitleCalls.Add(1) == 2) {
 				w.Header().Set("Content-Type", "application/json")
 				_, _ = w.Write([]byte(`{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"«Налоговая задолженность»"}}],"usage":{"total_tokens":30}}`))
 				return
@@ -242,16 +243,19 @@ func TestChatHTTP(t *testing.T) {
 	check(send(server, "GET", path, first, ""), 200, `"dialogues":[]`)
 	check(send(server, "POST", path, first, `{} {}`), 400, "invalid_json")
 	selected := create(first, "1073906000376")
+	const firstSubmission = `{"content":"Задолженность","client_message_id":"ad69da55-1956-44e4-bab9-bf802d16a224"}`
 	check(send(server, "GET", selected, second, ""), 404, "dialogue_not_found")
-	check(message(server, selected, second, "Задолженность"), 404, "dialogue_not_found")
+	check(send(server, "POST", selected, second, firstSubmission), 404, "dialogue_not_found")
+	check(send(server, "POST", selected, first, `{"content":"Задолженность","client_message_id":"invalid"}`), 400, "invalid_message_id")
 	firstResponse := make(chan *httptest.ResponseRecorder, 1)
-	go func() { firstResponse <- message(server, selected, first, "Задолженность") }()
+	go func() { firstResponse <- send(server, "POST", selected, first, firstSubmission) }()
 	select {
 	case <-mainStarted:
 	case <-time.After(5 * time.Second):
 		close(allowMain)
 		t.Fatal("answer request did not reach the provider")
 	}
+	check(send(replica, "POST", selected, first, firstSubmission), 409, "turn_in_progress")
 	var titleVisible bool
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
 		history := send(replica, "GET", selected, first, "")
@@ -263,7 +267,8 @@ func TestChatHTTP(t *testing.T) {
 		time.Sleep(25 * time.Millisecond)
 	}
 	close(allowMain)
-	check(<-firstResponse, 201, "221695.72", "2026-10-01", "fns-")
+	firstTurn := <-firstResponse
+	check(firstTurn, 201, "221695.72", "2026-10-01", "fns-", `"client_message_id":"ad69da55-1956-44e4-bab9-bf802d16a224"`)
 	if !titleVisible {
 		t.Fatal("title did not appear in history while the answer was blocked")
 	}
@@ -277,9 +282,12 @@ func TestChatHTTP(t *testing.T) {
 	}
 	check(send(replica, "GET", selected+"?limit=1", first, ""), 200, "А уплаченные?", "next_before_id", "reg:1073906000376", `"title":"Налоговая задолженность"`)
 
-	check(message(server, selected, first, "Профиль и налоги"), 201, "ООО Тестовый реестр", "dadata-", "fns-", "2025-12-31")
+	const sameQuestionFirst = `{"content":"Профиль и налоги","client_message_id":"ad69da55-1956-44e4-bab9-bf802d16a225"}`
+	const sameQuestionSecond = `{"content":"Профиль и налоги","client_message_id":"ad69da55-1956-44e4-bab9-bf802d16a226"}`
+	check(send(server, "POST", selected, first, sameQuestionFirst), 201, "ООО Тестовый реестр", "dadata-", "fns-", "2025-12-31", "ad69da55-1956-44e4-bab9-bf802d16a225")
 	failRegistry.Store(true)
-	check(message(replica, selected, first, "Профиль и налоги"), 201, "provider_unavailable", "fns-")
+	check(send(replica, "POST", selected, first, sameQuestionSecond), 201, "provider_unavailable", "fns-", "ad69da55-1956-44e4-bab9-bf802d16a226")
+	check(send(server, "GET", selected, first, ""), 200, "ad69da55-1956-44e4-bab9-bf802d16a225", "ad69da55-1956-44e4-bab9-bf802d16a226")
 
 	var pending *httptest.ResponseRecorder
 	done := make(chan struct{})
@@ -295,6 +303,13 @@ func TestChatHTTP(t *testing.T) {
 	check(conflicting, 409, "turn_in_progress")
 	check(pending, 201)
 	check(message(replica, selected, first, "Профиль и налоги"), 429, "message_budget_exhausted")
+	replay := send(replica, "POST", selected, first, firstSubmission)
+	check(replay, 201)
+	if replay.Body.String() != firstTurn.Body.String() {
+		t.Fatal("retry returned a different turn")
+	}
+	check(send(replica, "POST", selected, first, strings.Replace(firstSubmission, "Задолженность", "Численность", 1)), 409, "message_id_conflict")
+	check(send(replica, "POST", selected, second, firstSubmission), 404, "dialogue_not_found")
 
 	ambiguous := create(second, "")
 	check(message(server, ambiguous, second, "Неоднозначный ИНН"), 201, "reg:326000000000037", "reg:326000000000048")
@@ -336,6 +351,43 @@ func TestChatHTTP(t *testing.T) {
 	if accepted != 5 {
 		t.Fatalf("accepted %d concurrent messages, want 5", accepted)
 	}
+
+	retryToken, retryEmail := account()
+	withTitleRetry := create(retryToken, "1073906000376")
+	var retryDialogueID int64
+	if err := admin.QueryRow(ctx, `SELECT id FROM accounts.chat_dialogues WHERE user_id=(SELECT id FROM accounts.users WHERE email=$1)`, retryEmail).Scan(&retryDialogueID); err != nil {
+		t.Fatal(err)
+	}
+	check(message(server, withTitleRetry, retryToken, "Заголовок с повтором"), 201)
+	waitForFailedTitle := func() bool {
+		var ready bool
+		if err := admin.QueryRow(ctx, `SELECT title_attempts=1 AND title_retry_after IS NULL AND title IS NULL
+			FROM accounts.chat_dialogues WHERE id=$1`, retryDialogueID).Scan(&ready); err != nil {
+			t.Fatal(err)
+		}
+		return ready
+	}
+	for deadline := time.Now().Add(5 * time.Second); !waitForFailedTitle(); {
+		if time.Now().After(deadline) {
+			t.Fatal("first title failure did not release the claim for retry")
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	check(message(replica, withTitleRetry, retryToken, "Уточнение к исходному вопросу"), 201)
+	for deadline := time.Now().Add(5 * time.Second); ; {
+		history := send(server, "GET", withTitleRetry, retryToken, "")
+		if strings.Contains(history.Body.String(), `"title":"Налоговая задолженность"`) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("title was not saved after retry: %s", history.Body)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	if retryTitleCalls.Load() != 2 {
+		t.Fatalf("original question reached the title provider %d times, want 2", retryTitleCalls.Load())
+	}
+
 	exec("UPDATE accounts.sessions SET expires_at=now()-interval '1 second' WHERE user_id=(SELECT id FROM accounts.users WHERE email=$1)", email)
 	check(send(replica, "GET", selected, first, ""), 401, "invalid_session")
 }

@@ -11,13 +11,21 @@ function loadTestModule(file) {
   return import(`data:text/javascript;base64,${Buffer.from(outputText).toString("base64")}`);
 }
 
-const [{ collectChatHistory }, { chatMarkdown }] = await Promise.all([
-  loadTestModule("./chat-history.ts"), loadTestModule("./chat-markdown.ts"),
+const [{ collectChatHistory }, { chatMarkdown }, { isChatMessageId, newChatMessageId }] = await Promise.all([
+  loadTestModule("./chat-history.ts"), loadTestModule("./chat-markdown.ts"), loadTestModule("../../../lib/chat-contract.ts"),
 ]);
 
 const created_at = "2026-11-27T09:00:00Z";
 const dialogue = { id: "3", created_at, updated_at: created_at };
 const turn = (id, question = id, answer = { summary: "Ответ" }) => ({ id, question, answer, created_at });
+
+test("generates a distinct UUIDv4 for each chat submission", () => {
+  const first = newChatMessageId();
+  const second = newChatMessageId();
+  assert.ok(isChatMessageId(first));
+  assert.ok(isChatMessageId(second));
+  assert.notEqual(first, second);
+});
 
 test("exports every history page in chronological order with 64-bit IDs", async () => {
   const oldest = turn("9223372036854775799");

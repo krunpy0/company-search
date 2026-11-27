@@ -206,6 +206,7 @@ export interface paths {
         /**
          * Ask a question and wait for the full answer or a registration choice.
          * @description If the dialogue has candidates, send a candidate registration as the entire message to resume the original question.
+         *     Reuse client_message_id when retrying the same submission. A persisted turn is returned without running the model or charging its quotas again.
          */
         post: operations["sendChatMessage"];
         delete?: never;
@@ -316,6 +317,8 @@ export interface components {
          */
         AccountPassword: string;
         ChatId: string;
+        /** Format: uuid */
+        ChatMessageId: string;
         ChatRegistration: string;
         ChatDialogue: {
             title?: string;
@@ -330,6 +333,7 @@ export interface components {
         ChatTurn: {
             id: components["schemas"]["ChatId"];
             question: string;
+            client_message_id?: components["schemas"]["ChatMessageId"];
             answer: components["schemas"]["ChatAnswer"];
             /** Format: date-time */
             created_at: string;
@@ -677,10 +681,23 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description The local authentication concurrency limit was reached. */
+        /** @description The local authentication rate limit or concurrency limit was reached (rate_limited or busy). */
         AuthBusy: {
             headers: {
                 "Retry-After"?: number;
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description Too many requests for the current rate limit window (rate_limited). */
+        RateLimited: {
+            headers: {
+                "Retry-After"?: number;
+                "X-RateLimit-Limit"?: number;
+                "X-RateLimit-Remaining"?: number;
+                "X-RateLimit-Reset"?: number;
                 [name: string]: unknown;
             };
             content: {
@@ -786,6 +803,7 @@ export interface operations {
                 content?: never;
             };
             401: components["responses"]["SessionRequired"];
+            429: components["responses"]["RateLimited"];
             503: components["responses"]["AuthUnavailable"];
         };
     };
@@ -800,6 +818,7 @@ export interface operations {
         responses: {
             200: components["responses"]["AccountProfile"];
             401: components["responses"]["SessionRequired"];
+            429: components["responses"]["RateLimited"];
             503: components["responses"]["AuthUnavailable"];
         };
     };
@@ -874,6 +893,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            429: components["responses"]["RateLimited"];
             503: components["responses"]["AuthUnavailable"];
         };
     };
@@ -932,6 +952,7 @@ export interface operations {
                 content?: never;
             };
             401: components["responses"]["SessionRequired"];
+            429: components["responses"]["RateLimited"];
             503: components["responses"]["AuthUnavailable"];
         };
     };
@@ -1018,6 +1039,7 @@ export interface operations {
             };
             400: components["responses"]["ChatInvalidInput"];
             401: components["responses"]["SessionRequired"];
+            429: components["responses"]["RateLimited"];
             503: components["responses"]["ChatUnavailable"];
         };
     };
@@ -1047,6 +1069,7 @@ export interface operations {
             };
             400: components["responses"]["ChatInvalidInput"];
             401: components["responses"]["SessionRequired"];
+            429: components["responses"]["RateLimited"];
             503: components["responses"]["ChatUnavailable"];
         };
     };
@@ -1067,6 +1090,7 @@ export interface operations {
                 content?: never;
             };
             401: components["responses"]["SessionRequired"];
+            429: components["responses"]["RateLimited"];
             503: components["responses"]["ChatUnavailable"];
         };
     };
@@ -1103,6 +1127,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["SessionRequired"];
+            429: components["responses"]["RateLimited"];
             503: components["responses"]["ChatUnavailable"];
         };
     };
@@ -1127,6 +1152,7 @@ export interface operations {
             400: components["responses"]["ChatInvalidInput"];
             401: components["responses"]["SessionRequired"];
             404: components["responses"]["ChatNotFound"];
+            429: components["responses"]["RateLimited"];
             503: components["responses"]["ChatUnavailable"];
         };
     };
@@ -1167,6 +1193,7 @@ export interface operations {
             };
             401: components["responses"]["SessionRequired"];
             404: components["responses"]["ChatNotFound"];
+            429: components["responses"]["RateLimited"];
             503: components["responses"]["ChatUnavailable"];
         };
     };
@@ -1197,6 +1224,7 @@ export interface operations {
             400: components["responses"]["ChatInvalidInput"];
             401: components["responses"]["SessionRequired"];
             404: components["responses"]["ChatNotFound"];
+            429: components["responses"]["RateLimited"];
             503: components["responses"]["ChatUnavailable"];
         };
     };
@@ -1213,11 +1241,12 @@ export interface operations {
             content: {
                 "application/json": {
                     content: string;
+                    client_message_id?: components["schemas"]["ChatMessageId"];
                 };
             };
         };
         responses: {
-            /** @description Completed turn saved. */
+            /** @description Completed turn saved or returned from an earlier submission with the same ID. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -1229,7 +1258,7 @@ export interface operations {
             400: components["responses"]["ChatInvalidInput"];
             401: components["responses"]["SessionRequired"];
             404: components["responses"]["ChatNotFound"];
-            /** @description Another turn is already running in this dialogue (turn_in_progress). */
+            /** @description A turn is already running (turn_in_progress) or the message ID was already used for different content (message_id_conflict). */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -1238,9 +1267,10 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Message budget, token budget or server concurrency limit reached (message_budget_exhausted, token_budget_exhausted or busy). */
+            /** @description Rate limit, message budget, token budget or server concurrency limit reached (rate_limited, message_budget_exhausted, token_budget_exhausted or busy). */
             429: {
                 headers: {
+                    "Retry-After"?: number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -1295,9 +1325,10 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description The local request concurrency limit was reached. */
+            /** @description The local rate limit or request concurrency limit was reached (rate_limited or busy). */
             429: {
                 headers: {
+                    "Retry-After"?: number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -1364,9 +1395,10 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description The local request concurrency limit was reached. */
+            /** @description The local rate limit or request concurrency limit was reached (rate_limited or busy). */
             429: {
                 headers: {
+                    "Retry-After"?: number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -1435,9 +1467,10 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description The local request concurrency limit was reached. */
+            /** @description The local rate limit or request concurrency limit was reached (rate_limited or busy). */
             429: {
                 headers: {
+                    "Retry-After"?: number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -1514,9 +1547,10 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description The local request concurrency limit was reached. */
+            /** @description The local rate limit or request concurrency limit was reached (rate_limited or busy). */
             429: {
                 headers: {
+                    "Retry-After"?: number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -1583,9 +1617,10 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description The local request concurrency limit was reached. */
+            /** @description The local rate limit or request concurrency limit was reached (rate_limited or busy). */
             429: {
                 headers: {
+                    "Retry-After"?: number;
                     [name: string]: unknown;
                 };
                 content: {

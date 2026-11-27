@@ -19,6 +19,7 @@ var (
 	ErrInProgress    = errors.New("dialogue has a turn in progress")
 	ErrMessageBudget = errors.New("daily message budget exhausted")
 	ErrSelection     = errors.New("choose a registration from the pending candidates")
+	ErrMessageIDUsed = errors.New("message ID already used for different content")
 )
 
 const TurnTimeout = 2 * time.Minute
@@ -34,16 +35,17 @@ type Dialogue struct {
 }
 
 type Turn struct {
-	ID        int64           `json:"id,string"`
-	Question  string          `json:"question"`
-	Answer    json.RawMessage `json:"answer"`
-	CreatedAt time.Time       `json:"created_at"`
+	ID              int64           `json:"id,string"`
+	Question        string          `json:"question"`
+	Answer          json.RawMessage `json:"answer"`
+	CreatedAt       time.Time       `json:"created_at"`
+	ClientMessageID *string         `json:"client_message_id,omitempty"`
 }
 
 type Store struct{ Pool *pgxpool.Pool }
 
 const dialogueColumns = "id, registration, title, pending_registrations, created_at, updated_at"
-const turnColumns = "id, question, answer, created_at"
+const turnColumns = "id, question, answer, created_at, client_message_id::text"
 
 func (s Store) Create(ctx context.Context, user int64, registration *string) (Dialogue, error) {
 	var d Dialogue
@@ -147,29 +149,53 @@ func (s Store) recentTurns(ctx context.Context, user, id int64) ([]contextTurn, 
 
 type claim struct {
 	lease         string
-	generateTitle bool
-
-	registration *string
-	question     string
+	registration  *string
+	question      string
+	titleQuestion *string
+	titleAttempt  int16
+	replay        *Turn
 }
 
-func (s Store) claim(ctx context.Context, user, id int64, question string, titleEnabled bool) (claim, error) {
+func (s Service) claim(ctx context.Context, user, id int64, question string, messageID *string) (claim, error) {
 	c := claim{lease: rand.Text(), question: question}
 	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 		var busy bool
 		var pending *string
 		var candidates []string
+		var titleAttempts int16
 		err := tx.QueryRow(ctx, `SELECT registration, pending_question, pending_registrations,
 			COALESCE(lease_until > clock_timestamp(), false),
-			$3 AND NOT title_attempted AND title IS NULL AND NOT EXISTS (
-				SELECT 1 FROM accounts.chat_turns WHERE dialogue_id=$2)
-			FROM accounts.chat_dialogues WHERE user_id=$1 AND id=$2 FOR UPDATE`, user, id, titleEnabled).
-			Scan(&c.registration, &pending, &candidates, &busy, &c.generateTitle)
+			title_attempts,
+			CASE WHEN $3 AND title IS NULL AND title_attempts < 2
+				AND COALESCE(title_retry_after <= clock_timestamp(), true) THEN
+				COALESCE((SELECT question FROM accounts.chat_turns WHERE dialogue_id=$2 ORDER BY id LIMIT 1), pending_question, $4)
+			END
+			FROM accounts.chat_dialogues WHERE user_id=$1 AND id=$2 FOR UPDATE`, user, id, s.GenerateTitle != nil, question).
+			Scan(&c.registration, &pending, &candidates, &busy, &titleAttempts, &c.titleQuestion)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotFound
 		}
 		if err != nil {
 			return err
+		}
+		if messageID != nil {
+			var turn Turn
+			err := tx.QueryRow(ctx, `SELECT `+turnColumns+` FROM accounts.chat_turns
+				WHERE dialogue_id=$1 AND client_message_id=$2::text::uuid`, id, *messageID).
+				Scan(&turn.ID, &turn.Question, &turn.Answer, &turn.CreatedAt, &turn.ClientMessageID)
+			if err == nil {
+				if turn.Question != question {
+					return ErrMessageIDUsed
+				}
+				c.replay = &turn
+				return nil
+			}
+			if !errors.Is(err, pgx.ErrNoRows) {
+				return err
+			}
+		}
+		if s.Run.Provider == nil {
+			return ErrModelUnavailable
 		}
 		if busy {
 			return ErrInProgress
@@ -193,14 +219,19 @@ func (s Store) claim(ctx context.Context, user, id int64, question string, title
 		if err != nil {
 			return err
 		}
+		if c.titleQuestion != nil {
+			c.titleAttempt = titleAttempts + 1
+		}
 		_, err = tx.Exec(ctx, `UPDATE accounts.chat_dialogues SET lease_id=$3, lease_until=clock_timestamp()+interval '3 minutes',
-			title_attempted=title_attempted OR $4 WHERE user_id=$1 AND id=$2`, user, id, c.lease, c.generateTitle)
+			title_attempts=COALESCE(NULLIF($4::smallint,0),title_attempts),
+			title_retry_after=CASE WHEN $4 > 0 THEN clock_timestamp()+interval '1 minute' ELSE title_retry_after END
+			WHERE user_id=$1 AND id=$2`, user, id, c.lease, c.titleAttempt)
 		return err
 	})
 	return c, err
 }
 
-func (s Store) finish(ctx context.Context, user, id int64, c claim, question string, answer agent.Answer) (Turn, error) {
+func (s Store) finish(ctx context.Context, user, id int64, c claim, question string, messageID *string, answer agent.Answer) (Turn, error) {
 	var result Turn
 	var pending *string
 	candidates := answer.Candidates
@@ -219,9 +250,9 @@ func (s Store) finish(ctx context.Context, user, id int64, c claim, question str
 		if tag.RowsAffected() != 1 {
 			return ErrInProgress
 		}
-		return tx.QueryRow(ctx, `INSERT INTO accounts.chat_turns (dialogue_id, question, answer)
-			VALUES ($1, $2, $3) RETURNING `+turnColumns, id, question, answer).
-			Scan(&result.ID, &result.Question, &result.Answer, &result.CreatedAt)
+		return tx.QueryRow(ctx, `INSERT INTO accounts.chat_turns (dialogue_id, question, answer, client_message_id)
+			VALUES ($1, $2, $3, $4::text::uuid) RETURNING `+turnColumns, id, question, answer, messageID).
+			Scan(&result.ID, &result.Question, &result.Answer, &result.CreatedAt, &result.ClientMessageID)
 	})
 	return result, err
 }

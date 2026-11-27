@@ -17,6 +17,7 @@ import (
 )
 
 var chatRegistration = regexp.MustCompile(`^(reg:)?([0-9]{13}|[0-9]{15})$`)
+var chatMessageID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
 func RegisterChat(r gin.IRouter, service chat.Service) {
 	RegisterChatWithLimiters(r, service, nil)
@@ -99,7 +100,8 @@ func RegisterChatWithLimiters(r gin.IRouter, service chat.Service, limiters *Rat
 			return
 		}
 		var input struct {
-			Content string `json:"content"`
+			Content         string  `json:"content"`
+			ClientMessageID *string `json:"client_message_id"`
 		}
 		if !chatJSON(c, &input) {
 			return
@@ -107,6 +109,10 @@ func RegisterChatWithLimiters(r gin.IRouter, service chat.Service, limiters *Rat
 		input.Content = strings.TrimSpace(input.Content)
 		if input.Content == "" || utf8.RuneCountInString(input.Content) > 2000 || strings.ContainsRune(input.Content, 0) {
 			fail(c, 400, "invalid_message", "Provide a message of 1 to 2000 characters")
+			return
+		}
+		if input.ClientMessageID != nil && !chatMessageID.MatchString(*input.ClientMessageID) {
+			fail(c, 400, "invalid_message_id", "Provide a lowercase UUIDv4 as client_message_id")
 			return
 		}
 		select {
@@ -117,7 +123,7 @@ func RegisterChatWithLimiters(r gin.IRouter, service chat.Service, limiters *Rat
 			return
 		}
 		user, _ := quota.UserID(c.Request.Context())
-		turn, err := service.Send(c.Request.Context(), user, id, input.Content)
+		turn, err := service.Send(c.Request.Context(), user, id, input.Content, input.ClientMessageID)
 		if err != nil {
 			chatFailure(c, err)
 			return
@@ -237,6 +243,8 @@ func chatFailure(c *gin.Context, err error) {
 		fail(c, 404, "dialogue_not_found", "Dialogue not found")
 	case errors.Is(err, chat.ErrInProgress):
 		fail(c, 409, "turn_in_progress", "A message is already being processed in this dialogue")
+	case errors.Is(err, chat.ErrMessageIDUsed):
+		fail(c, 409, "message_id_conflict", "This message ID was already used for different content")
 	case errors.Is(err, chat.ErrSelection):
 		fail(c, 400, "registration_selection_required", "Choose an OGRN or OGRNIP from the dialogue candidates")
 	case errors.Is(err, chat.ErrMessageBudget):

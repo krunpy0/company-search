@@ -140,6 +140,17 @@ func TestAccountSessionsAndExternalQuota(t *testing.T) {
 	check(send(router, "GET", search, otherFirst, ""), 200, "")
 	exec("UPDATE accounts.sessions SET expires_at=now()-interval '1 second'")
 	check(send(router, "GET", search, second, ""), 401, "invalid_session")
+	active := login(firstBody)
+	for _, remaining := range []int{2, 1, 1} {
+		if err := deleteExpiredSessions(ctx, api, 1); err != nil {
+			t.Fatal(err)
+		}
+		var sessions int
+		if err := admin.QueryRow(ctx, "SELECT count(*) FROM accounts.sessions").Scan(&sessions); err != nil || sessions != remaining {
+			t.Fatalf("wanted %d sessions after cleanup, got %d: %v", remaining, sessions, err)
+		}
+	}
+	check(send(router, "GET", search, active, ""), 200, "")
 
 	var isolated bool
 	if err := admin.QueryRow(ctx, `

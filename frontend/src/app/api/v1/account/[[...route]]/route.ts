@@ -1,31 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { appOrigin } from "@/lib/app-origin";
 import { backendOrigin, sessionCookie } from "@/lib/backend";
+import { forwardedClientIP } from "@/lib/client-ip";
+import { readBody } from "@/lib/request-body";
 
 const cacheHeaders = { "Cache-Control": "private, no-store" };
 const fail = (status: number, code: string) => Response.json({ error: { code } }, { status, headers: cacheHeaders });
 
 type Context = RouteContext<"/api/v1/account/[[...route]]">;
-
-async function readBody(stream: ReadableStream<Uint8Array>, limit: number) {
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  const reader = stream.getReader();
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) return Buffer.concat(chunks, size);
-      size += value.length;
-      if (size > limit) {
-        await reader.cancel();
-        return;
-      }
-      chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-}
 
 async function forward(request: NextRequest, context: Context) {
   const segments = (await context.params).route ?? [];
@@ -43,6 +25,8 @@ async function forward(request: NextRequest, context: Context) {
   if (!token) return fail(401, "invalid_session");
 
   const headers = new Headers({ Authorization: `Bearer ${token}` });
+  const ip = forwardedClientIP(request.headers);
+  if (ip) headers.set("X-Forwarded-For", ip);
   const upload = method === "PUT";
   try {
     let body: Buffer<ArrayBuffer> | undefined;

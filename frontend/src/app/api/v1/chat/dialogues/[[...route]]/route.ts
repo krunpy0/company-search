@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server";
 import { appOrigin } from "@/lib/app-origin";
 import { backend, sessionCookie } from "@/lib/backend";
-import { isChatId, isChatRegistration } from "@/lib/chat-contract";
+import { isChatId, isChatMessageId, isChatRegistration } from "@/lib/chat-contract";
+import { readJSON } from "@/lib/request-body";
 
 const headers = { "Cache-Control": "private, no-store" };
 const fail = (status: number, code: string) => Response.json({ error: { code } }, { status, headers });
@@ -57,7 +58,8 @@ export async function PATCH(request: NextRequest, context: Context) {
   const segments = (await context.params).route;
   if (segments?.length !== 1 || !isChatId(segments[0])) return fail(404, "not_found");
   try {
-    const body: unknown = await request.json().catch(() => null);
+    const body = await readJSON(request, 32 * 1024);
+    if (body === undefined) return fail(413, "payload_too_large");
     if (!body || typeof body !== "object" || !("title" in body) || typeof body.title !== "string") {
       return fail(400, "invalid_title");
     }
@@ -96,7 +98,8 @@ export async function POST(request: NextRequest, context: Context) {
   if (!route) return fail(404, "not_found");
 
   try {
-    const body: unknown = await request.json().catch(() => null);
+    const body = await readJSON(request, 32 * 1024);
+    if (body === undefined) return fail(413, "payload_too_large");
     if (!body || typeof body !== "object" || Array.isArray(body)) return fail(400, "invalid_input");
     if (route.kind === "dialogues") {
       const registration = "registration" in body ? body.registration : undefined;
@@ -110,8 +113,12 @@ export async function POST(request: NextRequest, context: Context) {
     if (!content || content.length > 4000 || [...content].length > 2000 || content.includes("\0")) {
       return fail(400, "invalid_message");
     }
+    const clientMessageId = "client_message_id" in body ? body.client_message_id : undefined;
+    if (clientMessageId !== undefined && !isChatMessageId(clientMessageId)) {
+      return fail(400, "invalid_message_id");
+    }
     return upstream(await backend(token, 130_000).POST("/v1/chat/dialogues/{id}/messages", {
-      params: { path: { id: route.id } }, body: { content },
+      params: { path: { id: route.id } }, body: { content, client_message_id: clientMessageId },
     }));
   } catch {
     return fail(503, "unavailable");

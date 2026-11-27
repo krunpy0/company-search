@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { FeedbackDialog } from "@/app/feedback-dialog";
 import { WorkspaceDialog } from "@/app/workspace-dialog";
+import { newChatMessageId } from "@/lib/chat-contract";
 import { Arrow } from "../../landing-controls";
 import { questionDraftKey } from "../../product";
 import { companyIdentifier, companyPath } from "./company-data";
@@ -13,7 +14,7 @@ import { ChatExportDialog } from "./chat-export";
 import { collectChatHistory } from "./chat-history";
 
 type Props = { initialId?: string; company?: string; onDialogue: (dialogue: Dialogue) => void; onNewChat?: () => void };
-type Attempt = { kind: "question"; draft: string } | { kind: "candidate"; registration: string };
+type Attempt = { messageId: string } & ({ kind: "question"; draft: string } | { kind: "candidate"; registration: string });
 type Recovery = { attempt: Attempt; id: string; boundary?: string };
 type Failure = {
   code: string;
@@ -215,7 +216,7 @@ function ChatThread({ initialId, company, onDialogue, onNewChat }: Props) {
       const page = await collectChatHistory((before) => readChatPage(recovery.id, before), recovery.boundary);
       if (!active.current) return "stop";
       applyHistory(page);
-      if (page.messages.some((message) => message.question === submissionText(recovery.attempt))) {
+      if (page.messages.some((message) => message.client_message_id === recovery.attempt.messageId)) {
         finishAttempt(recovery.attempt, recovery.id);
         setFailure(undefined);
         return "stop";
@@ -282,9 +283,9 @@ function ChatThread({ initialId, company, onDialogue, onNewChat }: Props) {
 
       started = true;
       const response = readChat(chatApi.POST("/v1/chat/dialogues/{id}/messages", {
-        params: { path: { id: target } }, body: { content },
+        params: { path: { id: target } }, body: { content, client_message_id: attempt.messageId },
       }));
-      if (!boundary && !dialogueRef.current?.title && !titleLookup.current) {
+      if (!dialogueRef.current?.title && !titleLookup.current) {
         const controller = new AbortController();
         titleLookup.current = controller;
         void refreshTitle(target, controller).finally(() => {
@@ -295,7 +296,7 @@ function ChatThread({ initialId, company, onDialogue, onNewChat }: Props) {
       finishAttempt(attempt, target);
       if (!active.current) return;
       scrollToLatest.current = true;
-      setTurns((current) => [...current, turn]);
+      setTurns((current) => current.some((item) => item.id === turn.id) ? current : [...current, turn]);
       if (dialogueRef.current) {
         updateDialogue({
           ...dialogueRef.current,
@@ -310,6 +311,8 @@ function ChatThread({ initialId, company, onDialogue, onNewChat }: Props) {
       const requestId = error instanceof ChatError ? error.requestId : undefined;
       if (missing(error)) {
         setHistory({ kind: "missing" });
+      } else if (code === "message_id_conflict" || code === "invalid_message_id") {
+        setFailure({ kind: "notice", code: "invalid_message", requestId });
       } else if (started && target && !["invalid_message", "model_unavailable", "busy", "message_budget_exhausted", "token_budget_exhausted", "invalid_session", "invalid_origin"].includes(code)) {
         setPending(undefined);
         await reconcile({ attempt, id: target, boundary }, requestId, code);
@@ -329,7 +332,7 @@ function ChatThread({ initialId, company, onDialogue, onNewChat }: Props) {
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!needsCheck && !candidates.length) void send({ kind: "question", draft });
+    if (!needsCheck && !candidates.length) void send({ kind: "question", draft, messageId: newChatMessageId() });
   }
 
   const composer = <form className="workspace-question" onSubmit={submit}>
@@ -426,7 +429,7 @@ function ChatThread({ initialId, company, onDialogue, onNewChat }: Props) {
             <p>Выберите регистрацию, чтобы продолжить исходный вопрос.</p>
             <ul>{candidates.map((value) => <li key={value}>
               <button type="button" className="button button-outline" disabled={busy || needsCheck}
-                onClick={() => void send({ kind: "candidate", registration: value })}>{registrationLabel(value)}</button>
+                onClick={() => void send({ kind: "candidate", registration: value, messageId: newChatMessageId() })}>{registrationLabel(value)}</button>
             </li>)}</ul>
           </div>}
           {pending && <div className="chat-turn"><p className="chat-question">{pending}</p><p className="chat-wait" role="status">Готовим ответ…</p></div>}

@@ -101,6 +101,7 @@ func main() {
 		os.Exit(1)
 	}
 	httpapi.RegisterChatWithLimiters(authenticated, chatService, limiters)
+	go httpapi.MaintainSessions(ctx, pool)
 	srv := &http.Server{
 		Addr: env("HTTP_ADDR", ":8080"), Handler: r,
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second,

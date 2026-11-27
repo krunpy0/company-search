@@ -263,6 +263,37 @@ func TestRateLimitDisabledAndConcurrent(t *testing.T) {
 	}
 }
 
+func TestAuthRateLimitSeparatesClientsBehindTrustedProxy(t *testing.T) {
+	config := DefaultRateLimitConfig()
+	config.Auth.Burst = 1
+	limiters := newRateLimitersWithClock(config, func() time.Time { return time.Time{} })
+	r := gin.New()
+	if err := r.SetTrustedProxies([]string{"192.0.2.1"}); err != nil {
+		t.Fatal(err)
+	}
+	r.POST("/v1/auth/login", limiters.Auth(), func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	for _, tc := range []struct {
+		peer, client string
+		status       int
+	}{
+		{"192.0.2.1:1234", "198.51.100.1", http.StatusOK},
+		{"192.0.2.1:1234", "198.51.100.1", http.StatusTooManyRequests},
+		{"192.0.2.1:1234", "198.51.100.2", http.StatusOK},
+		{"192.0.2.2:1234", "198.51.100.1", http.StatusOK},
+		{"192.0.2.2:1234", "198.51.100.3", http.StatusTooManyRequests},
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/v1/auth/login", nil)
+		req.RemoteAddr = tc.peer
+		req.Header.Set("X-Forwarded-For", tc.client)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		if rec.Code != tc.status {
+			t.Fatalf("peer %s, forwarded %s: got %d, want %d", tc.peer, tc.client, rec.Code, tc.status)
+		}
+	}
+}
+
 func TestRateLimitConfigFromEnvAndTrustedProxies(t *testing.T) {
 	defaults, err := RateLimitConfigFromEnv(func(string) string { return "" })
 	if err != nil {

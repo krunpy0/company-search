@@ -6,6 +6,12 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 Для отправки сообщений включи `CHAT_ENABLED=true` в окружении Go API, задай `OPENAI_BASE_URL` и `OPENAI_MODEL`, затем перезапусти Go API. Настройки модели описаны в [README бэкенда](../backend/README.md#api-чата).
 
+### Лимиты по IP за обратным прокси
+
+Для раздельных лимитов по IP браузеров Go должен получать клиентский адрес через Next.js. Открой Next.js только для доверенного входного прокси, а Go — только для Next.js и других разрешённых внутренних клиентов. На входном прокси всегда **перезаписывай** `X-Real-IP` адресом клиента, полученным от сетевого соединения или доверенной инфраструктуры. Для Nginx с прямыми подключениями клиентов используй `proxy_set_header X-Real-IP $remote_addr;`.
+
+Задай `COMPANY_TRUST_PROXY_CLIENT_IP=true` на сервере Next.js и укажи в `TRUSTED_PROXIES` на стороне Go адрес, с которого Next.js подключается к Go. Next.js передаст один проверенный по формату IP через `X-Forwarded-For`. Если Next.js доступен напрямую из интернета или прокси не перезаписывает входной `X-Real-IP`, оставь `COMPANY_TRUST_PROXY_CLIENT_IP` выключенной и ограничивай запросы по IP на публичном прокси.
+
 После изменения [OpenAPI](../backend/openapi.yaml) выполни из `frontend/`:
 
 ```bash

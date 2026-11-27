@@ -3,6 +3,7 @@ import { appOrigin } from "@/lib/app-origin";
 import { passwordFits } from "@/lib/auth-feedback";
 import { backend, sessionCookie } from "@/lib/backend";
 import type { components } from "@/lib/api";
+import { readJSON } from "@/lib/request-body";
 import { workspaceSession } from "@/lib/workspace-session";
 
 const noStore = { "Cache-Control": "no-store" };
@@ -66,7 +67,9 @@ export async function POST(request: NextRequest, { params }: RouteContext<"/api/
       return result;
     }
 
-    const body = credentials(await request.json().catch(() => null));
+    const input = await readJSON(request, 4096);
+    if (input === undefined) return failure(413, "payload_too_large");
+    const body = credentials(input);
     if (!body) return failure(400, "invalid_input");
 
     if (operation === "register") {

@@ -22,27 +22,23 @@ type Service struct {
 	GenerateTitle func(context.Context, string) (string, error)
 }
 
-func (s Service) Send(ctx context.Context, user, id int64, question string) (Turn, error) {
-	if s.Run.Provider == nil {
-		// Confirm ownership before exposing chat availability.
-		if _, _, err := s.History(ctx, user, id, 0, 1); err != nil {
-			return Turn{}, err
-		}
-		return Turn{}, ErrModelUnavailable
-	}
+func (s Service) Send(ctx context.Context, user, id int64, question string, messageID *string) (Turn, error) {
 	ctx, cancel := context.WithTimeout(ctx, TurnTimeout)
 	defer cancel()
-	c, err := s.claim(ctx, user, id, question, s.GenerateTitle != nil)
+	c, err := s.claim(ctx, user, id, question, messageID)
 	if err != nil {
 		return Turn{}, err
+	}
+	if c.replay != nil {
+		return *c.replay, nil
 	}
 	defer func() {
 		cleanup, stop := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
 		defer stop()
 		s.release(cleanup, user, id, c)
 	}()
-	if c.generateTitle {
-		go s.nameDialogue(context.WithoutCancel(ctx), user, id, c.question)
+	if c.titleQuestion != nil {
+		go s.nameDialogue(context.WithoutCancel(ctx), user, id, *c.titleQuestion, c.titleAttempt)
 	}
 	turns, err := s.recentTurns(ctx, user, id)
 	if err != nil {
@@ -65,10 +61,20 @@ func (s Service) Send(ctx context.Context, user, id int64, question string) (Tur
 	}
 	saveCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
 	defer stop()
-	return s.finish(saveCtx, user, id, c, question, answer)
+	return s.finish(saveCtx, user, id, c, question, messageID, answer)
 }
 
-func (s Service) nameDialogue(ctx context.Context, user, id int64, question string) {
+func (s Service) nameDialogue(ctx context.Context, user, id int64, question string, attempt int16) {
+	saved := false
+	defer func() {
+		if !saved {
+			releaseCtx, stop := context.WithTimeout(ctx, cleanupTimeout)
+			defer stop()
+			// The deadline also allows retry after a process exits or loses its DB connection.
+			_, _ = s.Pool.Exec(releaseCtx, `UPDATE accounts.chat_dialogues SET title_retry_after=NULL
+				WHERE user_id=$1 AND id=$2 AND title IS NULL AND title_attempts=$3`, user, id, attempt)
+		}
+	}()
 	modelCtx, cancel := context.WithTimeoutCause(ctx, 45*time.Second, errors.New("chat title model timed out after 45 seconds"))
 	title, err := s.GenerateTitle(modelCtx, question)
 	cancel()
@@ -82,8 +88,8 @@ func (s Service) nameDialogue(ctx context.Context, user, id int64, question stri
 	}
 	saveCtx, stop := context.WithTimeout(ctx, cleanupTimeout)
 	defer stop()
-	if _, err := s.Pool.Exec(saveCtx, `UPDATE accounts.chat_dialogues SET title=$3
-		WHERE user_id=$1 AND id=$2 AND title IS NULL`, user, id, title); err != nil {
+	if _, err := s.Pool.Exec(saveCtx, `UPDATE accounts.chat_dialogues SET title=$3, title_retry_after=NULL
+		WHERE user_id=$1 AND id=$2 AND title IS NULL AND title_attempts=$4`, user, id, title, attempt); err != nil {
 		var dbErr *pgconn.PgError
 		switch {
 		case errors.As(err, &dbErr):
@@ -93,7 +99,9 @@ func (s Service) nameDialogue(ctx context.Context, user, id int64, question stri
 		default:
 			slog.Warn("chat title save failed", "dialogue_id", id, "error", "database unavailable")
 		}
+		return
 	}
+	saved = true
 }
 
 func priorMessages(turns []contextTurn) []agent.Message {
