@@ -288,6 +288,8 @@ pg_restore --exit-on-error --single-transaction --no-owner --no-privileges \
 
 ## API чата
 
+При штатной остановке API даёт активным HTTP-запросам до 130 секунд на завершение. Если процессом управляет Docker, systemd или другой менеджер, его тайм-аут принудительной остановки должен быть больше 130 секунд.
+
 Запусти миграции и примени `db-roles.sql` под владельцем базы. Запусти API под ролью `company_api` с `AUTO_MIGRATE=false`. Для отправки сообщений задай `CHAT_ENABLED=true`, `OPENAI_BASE_URL` и `OPENAI_MODEL`. Если сервер модели требует ключ, задай `OPENAI_API_KEY`. При выключенной модели создание и чтение диалогов доступны, отправка возвращает `503 model_unavailable`.
 
 Для каждого запроса передай `Authorization: Bearer <access_token>`. Получи токен через `POST /v1/auth/login`.
@@ -317,7 +319,9 @@ CHAT_TITLE_OPENAI_MODEL=
 
 Для чата DaData по умолчанию выключена. Включай `CHAT_DADATA_ENABLED=true` вместе с `DADATA_ENABLED=true`, только если условия поставки разрешают показ пользователям API, передачу выбранной модели и хранение сведений в истории. Чат использует квоты DaData этапа 14. Наборы ФНС по поддержке МСП и налоговым правонарушениям подключаются через `FNS_SUPPORT_AGENT_ENABLED` и `FNS_TAX_OFFENCES_AGENT_ENABLED`.
 
-Для интеграционных тестов создай отдельную PostgreSQL с именем базы, начинающимся на `stage15_test`. Примени миграции и `db-roles.sql`. Тест HTTP загружает фикстуру после очистки таблиц данных в этой базе. Задай `COMPANY_CHAT_TEST_ADMIN_URL` и `COMPANY_CHAT_TEST_API_URL` для ролей владельца и API. Запусти из `backend`:
+Для проверки миграций, импорта исправленного архива, поиска, аккаунтов и чата запусти из `backend` команду `pwsh -NoProfile -File ./test-postgres.ps1`. Нужны PowerShell 7.4+ и запущенный Docker. Скрипт создаёт временный контейнер PostgreSQL с отдельными тестовыми базами, применяет миграции и права, проверяет прохождение всех выбранных тестов и удаляет контейнер после прогона.
+
+Для отдельного запуска теста API чата создай PostgreSQL с именем базы, начинающимся на `stage15_test`. Примени миграции и `db-roles.sql`. Тест HTTP загружает фикстуру после очистки таблиц данных в этой базе. Задай `COMPANY_CHAT_TEST_ADMIN_URL` и `COMPANY_CHAT_TEST_API_URL` для ролей владельца и API. Запусти из `backend`:
 
 ```powershell
 go test -count=1 -run 'TestChatHTTP|TestChatCompletionsTokenBudget' ./internal/httpapi ./internal/agent

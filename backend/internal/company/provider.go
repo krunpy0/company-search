@@ -68,22 +68,22 @@ func (p *providerResult) warn(code string) {
 	p.warnings = append(p.warnings, Body{"source": "dadata", "code": code})
 }
 
-func providerSearch(s snapshot, lookup PartyLookup, mode, query, kind string, firstPage, includeDetails bool) (providerResult, error) {
+func providerSearch(ctx context.Context, lookup PartyLookup, mode, query, kind string, firstPage, includeDetails bool) providerResult {
 	p := providerResult{state: "disabled"}
 	if lookup == nil {
-		return p, nil
+		return p
 	}
 	p.state = "not_requested"
 	if !firstPage {
-		return p, nil
+		return p
 	}
-	upstream, cancel := context.WithTimeout(s.request, 1500*time.Millisecond)
+	upstream, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
 	parties, limited, warning := lookup(upstream, query, mode, kind)
 	cancel()
 	if warning != "" {
 		p.state = "unavailable"
 		p.warn(warning)
-		return p, nil
+		return p
 	}
 	p.state = "checked"
 	if limited || mode == "name" {
@@ -118,14 +118,23 @@ func providerSearch(s snapshot, lookup PartyLookup, mode, query, kind string, fi
 		o.Source, o.SourceURL, o.RetrievedAt = "dadata", sourceURL, now
 		p.observations = append(p.observations, o)
 	}
+	p.observations = slices.DeleteFunc(p.observations, func(o registrationObservation) bool {
+		return seen[o.Registration] == ""
+	})
+	return p
+}
+
+func (p *providerResult) checkLocal(ctx context.Context, s snapshot) error {
 	if len(p.observations) == 0 {
-		return p, nil
+		return nil
 	}
 	numbers := make([]string, 0, len(p.observations))
+	seen := make(map[string]string, len(p.observations))
 	for _, observation := range p.observations {
 		numbers = append(numbers, observation.Registration)
+		seen[observation.Registration] = observation.INN
 	}
-	ctx, cancel := context.WithTimeout(s.request, 500*time.Millisecond)
+	ctx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	rows, err := s.Query(ctx, `
 		SELECT r.reg_no, r.inn, EXISTS (
@@ -140,7 +149,7 @@ func providerSearch(s snapshot, lookup PartyLookup, mode, query, kind string, fi
 		)
 		FROM registrations r WHERE r.reg_no = ANY($1::text[])`, numbers)
 	if err != nil {
-		return p, err
+		return err
 	}
 	defer rows.Close()
 	p.published = make(map[string]bool)
@@ -148,7 +157,7 @@ func providerSearch(s snapshot, lookup PartyLookup, mode, query, kind string, fi
 		var number, inn string
 		var published bool
 		if err := rows.Scan(&number, &inn, &published); err != nil {
-			return p, err
+			return err
 		}
 		if claimed := seen[number]; claimed != "" && claimed != inn {
 			seen[number] = ""
@@ -159,7 +168,7 @@ func providerSearch(s snapshot, lookup PartyLookup, mode, query, kind string, fi
 	p.observations = slices.DeleteFunc(p.observations, func(o registrationObservation) bool {
 		return seen[o.Registration] == ""
 	})
-	return p, rows.Err()
+	return rows.Err()
 }
 
 func normalizeParty(raw RegistryParty, includeDetails bool) (registrationObservation, bool) {

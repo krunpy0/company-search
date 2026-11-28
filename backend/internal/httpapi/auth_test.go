@@ -48,11 +48,11 @@ func TestAccountSessionsAndExternalQuota(t *testing.T) {
 
 	newRouter := func(pool, quotaPool *pgxpool.Pool, providerLimit int) *gin.Engine {
 		router := gin.New()
-		session := RegisterAuth(router, pool)
+		session := RegisterAuthWithLimiters(router, pool, nil, nil)
 		gate := quota.New(quotaPool, "dadata", "shared-test-key", providerLimit, 1)
-		RegisterCompanies(router.Group("", session), pool, func(ctx context.Context, _, _, _ string) ([]company.RegistryParty, bool, string) {
+		RegisterCompaniesWithLimiters(router.Group("", session), pool, func(ctx context.Context, _, _, _ string) ([]company.RegistryParty, bool, string) {
 			return nil, false, gate.Reserve(ctx)
-		}, false)
+		}, false, nil)
 		return router
 	}
 	router := newRouter(api, replica, 2)

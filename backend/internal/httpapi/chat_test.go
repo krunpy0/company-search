@@ -172,12 +172,12 @@ func TestChatHTTP(t *testing.T) {
 	}
 	router := func(p *pgxpool.Pool, budget int64) *gin.Engine {
 		r := gin.New()
-		session := RegisterAuth(r, p)
-		RegisterChat(r.Group("", session), chat.Service{Store: chat.Store{Pool: p}, GenerateTitle: provider.WithTokenBudget(quota.NewTokenBudget(p, budget)).ChatTitle, Run: agent.Run{
+		session := RegisterAuthWithLimiters(r, p, nil, nil)
+		RegisterChatWithLimiters(r.Group("", session), chat.Service{Store: chat.Store{Pool: p}, GenerateTitle: provider.WithTokenBudget(quota.NewTokenBudget(p, budget)).ChatTitle, Run: agent.Run{
 			Provider: provider.WithTokenBudget(quota.NewTokenBudget(p, budget)),
 			Tools:    tools.Executor{Reader: company.Reader{Pool: p, Lookup: lookup}},
 			Steps:    6, Bytes: 16000,
-		}})
+		}}, nil)
 		return r
 	}
 	server, replica := router(api, 100000), router(secondAPI, 100000)

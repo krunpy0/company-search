@@ -22,7 +22,7 @@ func TestPublishedMoneyTaxes(t *testing.T) {
 	}
 	defer pool.Close()
 	router := gin.New()
-	RegisterCompanies(router, pool, nil, false)
+	RegisterCompaniesWithLimiters(router, pool, nil, false, nil)
 
 	get := func(path string, want int) map[string]any {
 		t.Helper()

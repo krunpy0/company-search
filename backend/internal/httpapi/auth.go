@@ -34,10 +34,6 @@ func accountPassword(password string) bool {
 	return len(password) >= 12 && len(password) <= 72
 }
 
-func RegisterAuth(r *gin.Engine, pool *pgxpool.Pool) gin.HandlerFunc {
-	return RegisterAuthWithLimiters(r, pool, nil, nil)
-}
-
 func RegisterAuthWithLimiters(r *gin.Engine, pool *pgxpool.Pool, limiters *RateLimiters, sendReset PasswordResetSender) gin.HandlerFunc {
 	if limiters == nil {
 		limiters = NewRateLimiters(DefaultRateLimitConfig())

@@ -118,8 +118,8 @@ func stage16Login(t *testing.T, r *gin.Engine, email, password string) string {
 func TestStage16AccountHTTP(t *testing.T) {
 	admin, api := stage16Pools(t)
 	r := gin.New()
-	session := RegisterAuth(r, api)
-	RegisterChat(r.Group("", session), chat.Service{Store: chat.Store{Pool: api}})
+	session := RegisterAuthWithLimiters(r, api, nil, nil)
+	RegisterChatWithLimiters(r.Group("", session), chat.Service{Store: chat.Store{Pool: api}}, nil)
 	const firstEmail = "owner@example.test"
 	const secondEmail = "another@example.test"
 	const nextEmail = "owner-new@example.test"
@@ -287,8 +287,8 @@ func TestStage16ChatManagementHTTP(t *testing.T) {
 	admin, api := stage16Pools(t)
 	r := gin.New()
 	started, resume := make(chan struct{}), make(chan struct{})
-	session := RegisterAuth(r, api)
-	RegisterChat(r.Group("", session), chat.Service{
+	session := RegisterAuthWithLimiters(r, api, nil, nil)
+	RegisterChatWithLimiters(r.Group("", session), chat.Service{
 		Store: chat.Store{Pool: api},
 		Run: agent.Run{Steps: 1, Bytes: 10000, Provider: stage16Provider(func(ctx context.Context) (agent.Message, error) {
 			close(started)
@@ -299,7 +299,7 @@ func TestStage16ChatManagementHTTP(t *testing.T) {
 				return agent.Message{Role: "assistant", Content: "Готово"}, nil
 			}
 		})},
-	})
+	}, nil)
 	const firstEmail = "chat-owner@example.test"
 	const otherEmail = "other-chat-owner@example.test"
 	stage16Register(t, r, firstEmail)

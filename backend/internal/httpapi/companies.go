@@ -11,10 +11,6 @@ import (
 
 type PartyLookup = company.PartyLookup
 
-func RegisterCompanies(r gin.IRouter, pool *pgxpool.Pool, lookup PartyLookup, registryDetails bool) {
-	RegisterCompaniesWithLimiters(r, pool, lookup, registryDetails, nil)
-}
-
 func RegisterCompaniesWithLimiters(r gin.IRouter, pool *pgxpool.Pool, lookup PartyLookup, registryDetails bool, limiters *RateLimiters) {
 	if limiters == nil {
 		limiters = NewRateLimiters(DefaultRateLimitConfig())

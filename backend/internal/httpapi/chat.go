@@ -19,10 +19,6 @@ import (
 var chatRegistration = regexp.MustCompile(`^(reg:)?([0-9]{13}|[0-9]{15})$`)
 var chatMessageID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
-func RegisterChat(r gin.IRouter, service chat.Service) {
-	RegisterChatWithLimiters(r, service, nil)
-}
-
 func RegisterChatWithLimiters(r gin.IRouter, service chat.Service, limiters *RateLimiters) {
 	if limiters == nil {
 		limiters = NewRateLimiters(DefaultRateLimitConfig())

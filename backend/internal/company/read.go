@@ -139,56 +139,70 @@ func (r Reader) search(ctx context.Context, params url.Values) (Result, error) {
 			return Rejected(400, "invalid_cursor", "Invalid cursor"), nil
 		}
 	}
-	return r.snapshot(ctx, func(ctx context.Context, s snapshot) (Result, error) {
+	var items []Match
+	var local snapshot
+	readLocal := func(ctx context.Context, s snapshot) (Result, error) {
 		if page.ID != "" && page.Version != s.version {
 			return Rejected(409, "stale_cursor", "Published releases changed. Restart the search"), nil
 		}
-		items, err := Search(ctx, s.Tx, mode, query, kind, page.Rank, page.ID, limit+1)
-		if err != nil {
-			return Result{}, err
-		}
-		var next *string
-		if len(items) > limit {
-			items = items[:limit]
-			last := items[limit-1]
-			data, err := json.Marshal(cursor{Query: key, Version: s.version, Rank: last.Rank, ID: last.ID})
-			if err != nil {
-				return Result{}, err
-			}
-			encoded := base64.RawURLEncoding.EncodeToString(data)
-			next = &encoded
-		}
-		p, err := providerSearch(s, r.Lookup, mode, query, kind, page.ID == "", r.IncludeRegistryDetails)
-		if err != nil {
-			return Result{}, err
-		}
-		output := make([]searchItem, 0, len(items))
-		index := make(map[string]int, len(items))
-		for _, item := range items {
-			index[item.ID] = len(output)
-			output = append(output, searchItem{Match: item})
-		}
-		for _, o := range p.observations {
-			if i, ok := index[o.ID]; ok {
-				p.compare(o, output[i].Identity, nil)
-				if mode != "name" {
-					output[i].DaData = &o
+		found, err := Search(ctx, s.Tx, mode, query, kind, page.Rank, page.ID, limit+1)
+		items, local = found, s
+		return Result{}, err
+	}
+	if result, err := r.snapshot(ctx, readLocal); err != nil || result.Error != nil {
+		return result, err
+	}
+	p := providerSearch(ctx, r.Lookup, mode, query, kind, page.ID == "", r.IncludeRegistryDetails)
+	if len(p.observations) > 0 {
+		if result, err := r.snapshot(ctx, func(ctx context.Context, s snapshot) (Result, error) {
+			// A release can change while DaData runs. Use one snapshot for both sets of local reads.
+			if s.version != local.version {
+				if result, err := readLocal(ctx, s); err != nil || result.Error != nil {
+					return result, err
 				}
-			} else if mode != "name" && !p.published[o.Registration] {
-				output = append(output, searchItem{Match: Match{Identity: o.identity()}, DaData: &o})
 			}
+			return Result{}, p.checkLocal(ctx, s)
+		}); err != nil || result.Error != nil {
+			return result, err
 		}
-		body := Body{"items": output, "next_cursor": next, "sources": s.sources,
-			"coverage": coverage(s), "warnings": []Body{}}
-		if mode == "name" && (p.state == "checked" || p.state == "limited") {
-			body["external_suggestions"] = append([]registrationObservation{}, p.observations...)
+	}
+	var next *string
+	if len(items) > limit {
+		items = items[:limit]
+		last := items[limit-1]
+		data, err := json.Marshal(cursor{Query: key, Version: local.version, Rank: last.Rank, ID: last.ID})
+		if err != nil {
+			return Result{}, err
 		}
-		p.apply(body)
-		if len(output) == 0 && mode != "name" && p.state == "unavailable" {
-			return p.unavailable(), nil
+		encoded := base64.RawURLEncoding.EncodeToString(data)
+		next = &encoded
+	}
+	output := make([]searchItem, 0, len(items))
+	index := make(map[string]int, len(items))
+	for _, item := range items {
+		index[item.ID] = len(output)
+		output = append(output, searchItem{Match: item})
+	}
+	for _, o := range p.observations {
+		if i, ok := index[o.ID]; ok {
+			p.compare(o, output[i].Identity, nil)
+			if mode != "name" {
+				output[i].DaData = &o
+			}
+		} else if mode != "name" && !p.published[o.Registration] {
+			output = append(output, searchItem{Match: Match{Identity: o.identity()}, DaData: &o})
 		}
-		return Result{Body: body}, nil
-	})
+	}
+	body := Body{"items": output, "next_cursor": next, "sources": local.sources,
+		"coverage": coverage(local), "warnings": []Body{}}
+	if mode == "name" && (p.state == "checked" || p.state == "limited") {
+		body["external_suggestions"] = append([]registrationObservation{}, p.observations...)
+	}
+	p.apply(body)
+	if len(output) == 0 && mode != "name" && p.state == "unavailable" {
+		return p.unavailable(), nil
+	}
+	return Result{Body: body}, nil
 }
 
 func coverage(s snapshot) Body {
@@ -258,8 +272,8 @@ func (r Reader) detail(ctx context.Context, operation Operation, id string, para
 		}
 		// The local-only routes need DaData just to resolve an otherwise unknown ID.
 		useProvider := operation == ReadProfile || operation == ReadSources || len(candidates) == 0
-		p, err := providerSearch(s, r.Lookup, providerMode, number, "", useProvider && len(candidates) < 2, r.IncludeRegistryDetails && operation == ReadProfile)
-		if err != nil {
+		p := providerSearch(s.request, r.Lookup, providerMode, number, "", useProvider && len(candidates) < 2, r.IncludeRegistryDetails && operation == ReadProfile)
+		if err := p.checkLocal(ctx, s); err != nil {
 			return Result{}, err
 		}
 		local := make(map[string]bool, len(candidates))

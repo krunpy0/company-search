@@ -25,7 +25,7 @@ func TestPublishedCompanyAPI(t *testing.T) {
 	}
 	defer pool.Close()
 	router := gin.New()
-	RegisterCompanies(router, pool, nil, false)
+	RegisterCompaniesWithLimiters(router, pool, nil, false, nil)
 
 	get := func(path string, want int) map[string]any {
 		t.Helper()
@@ -203,7 +203,7 @@ func TestPublishedCompanyAPI(t *testing.T) {
 			return []company.RegistryParty{}, false, ""
 		}
 	}
-	RegisterCompanies(router, pool, lookup, true)
+	RegisterCompaniesWithLimiters(router, pool, lookup, true, nil)
 	merged := get("/v1/companies?q="+inn, 200)
 	mergedItems := merged["items"].([]any)
 	firstMatch := mergedItems[0].(map[string]any)
@@ -234,13 +234,13 @@ func TestPublishedCompanyAPI(t *testing.T) {
 		t.Fatal("name suggestions must not include new registry details")
 	}
 	router = gin.New()
-	RegisterCompanies(router, pool, lookup, false)
+	RegisterCompaniesWithLimiters(router, pool, lookup, false, nil)
 	baseline := get(base, 200)["dadata"].(map[string]any)
 	if baseline["manager"] != nil || baseline["address"] != main.Address {
 		t.Fatalf("unexpected registry fields with enrichment disabled: %+v", baseline)
 	}
 	router = gin.New()
-	RegisterCompanies(router, pool, lookup, true)
+	RegisterCompaniesWithLimiters(router, pool, lookup, true, nil)
 	conflictingProvider = true
 	rejected := get(base, 200)
 	if rejected["sections"].(map[string]any)["registration"].(map[string]any)["state"] != "identity_conflict" {

@@ -15,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
+	"github.com/krunpy0/company-search/backend/internal/chat"
 	"github.com/krunpy0/company-search/backend/internal/dadata"
 	"github.com/krunpy0/company-search/backend/internal/httpapi"
 	"github.com/krunpy0/company-search/backend/migrations"
@@ -119,11 +120,15 @@ func main() {
 		}
 	}()
 	<-ctx.Done()
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil {
+	if err := shutdown(srv); err != nil {
 		slog.Error("shutdown", "error", err)
 	}
+}
+
+func shutdown(srv *http.Server) error {
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), chat.TurnTimeout+10*time.Second)
+	defer cancel()
+	return srv.Shutdown(shutdownCtx)
 }
 
 func runAutoMigrate(ctx context.Context, dsn string, apply func(context.Context, string) error) error {

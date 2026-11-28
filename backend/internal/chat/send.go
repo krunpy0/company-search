@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"slices"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/krunpy0/company-search/backend/internal/agent"
@@ -108,7 +109,11 @@ func priorMessages(turns []contextTurn) []agent.Message {
 	const maxBytes = 6000
 	remaining := maxBytes
 	history := make([]agent.Message, 0, 2*len(turns))
-	for _, turn := range turns {
+	for i, turn := range turns {
+		if i == 0 && len(turn.Question)+len(turn.Summary) > maxBytes {
+			turn.Question = historyPrefix(turn.Question, maxBytes-min(len(turn.Summary), maxBytes/2))
+			turn.Summary = historyPrefix(turn.Summary, maxBytes-len(turn.Question))
+		}
 		remaining -= len(turn.Question)
 		if remaining < 0 {
 			break
@@ -121,6 +126,16 @@ func priorMessages(turns []contextTurn) []agent.Message {
 	}
 	slices.Reverse(history)
 	return history
+}
+
+func historyPrefix(value string, maxBytes int) string {
+	if len(value) <= maxBytes {
+		return value
+	}
+	for !utf8.RuneStart(value[maxBytes]) {
+		maxBytes--
+	}
+	return value[:maxBytes]
 }
 
 // The CLI may return partial evidence after a provider error. HTTP returns a distinct error.
